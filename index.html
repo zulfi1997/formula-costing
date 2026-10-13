@@ -271,6 +271,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
             <tbody></tbody>
           </table>
         </div>
+        <p class="small muted" style="margin:6px 0 0">Costs are standard costs from steps 3 and 4 (total cost includes the provisions). The overage % only adds quantity to the requirement list below. Intermediates such as buffers are prepared automatically for the formulas that use them, so “Add all” leaves them out.</p>
         <div class="tally" id="tally"></div>
         <div class="table-scroll tall">
           <table id="req">
@@ -1094,10 +1095,9 @@ function renderPlan() {
   const tb = $("plan").querySelector("tbody");
   tb.innerHTML = plan.length ? plan.map((p, i) => {
     const f = fById(p.fid), t = totals(f), u = planUnits(p, f);
-    const k = 1 + (parseFloat(planOver) || 0) / 100;
-    return `<tr><td>${esc(f.title)}</td>
+    return `<tr><td>${esc(f.title)}${f.isInter ? ` <span class="chip off">Intermediate</span>` : ""}</td>
       <td><span class="row" style="gap:6px;flex-wrap:nowrap"><input type="number" id="pq${i}" min="0" step="any" value="${esc(p.qty)}" aria-label="Quantity to make" class="num"><select id="pm${i}" aria-label="Unit">${modeOptions(f, p.mode)}</select></span></td>
-      <td class="num">${round(u, 2)}</td><td class="num">${money(t.M / t.n * u * k)}</td><td class="num">${money(t.cpu * u)}</td>
+      <td class="num">${round(u, 2)}</td><td class="num">${money(t.M / t.n * u)}</td><td class="num">${money(t.cpu * u)}</td>
       <td><button type="button" class="x" data-rm="${i}" aria-label="Remove ${esc(f.title)} from plan">✕</button></td></tr>`;
   }).join("") : `<tr><td colspan="6" class="empty">Nothing planned yet. Pick a formula, enter how many to make, and choose “Add to plan”.</td></tr>`;
   plan.forEach((p, i) => {
@@ -1140,10 +1140,15 @@ $("planadd").addEventListener("click", () => {
   plan.push({ fid, qty, mode: $("planm").value || "units" }); savePlan(); renderPlan();
 });
 /* add every formula (or every formula matching the search in step 2) with the same quantity */
-const planTargets = () => { const q = $("bookq").value.trim().toLowerCase(); return book.filter(f => !q || (f.title + " " + f.source).toLowerCase().includes(q)); };
+function planTargets() {
+  const q = $("bookq").value.trim().toLowerCase();
+  const hit = book.filter(f => !q || (f.title + " " + f.source).toLowerCase().includes(q));
+  const finished = hit.filter(f => !f.isInter);
+  return finished.length ? finished : hit;      // intermediates are prepared automatically for the formulas that use them
+}
 function updatePlanAllLabel() {
-  const q = $("bookq").value.trim(), n = planTargets().length;
-  $("planall").textContent = q ? `Add ${n} matching formula${n === 1 ? "" : "s"}` : `Add all ${n} formulas`;
+  const q = $("bookq").value.trim(), t = planTargets(), n = t.length, fin = t.some(f => !f.isInter) ? " finished" : "";
+  $("planall").textContent = q ? `Add ${n} matching${fin} formula${n === 1 ? "" : "s"}` : `Add all ${n}${fin} formula${n === 1 ? "" : "s"}`;
   $("planall").disabled = !n;
 }
 $("planall").addEventListener("click", () => {
