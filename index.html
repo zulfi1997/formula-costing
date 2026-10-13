@@ -150,6 +150,8 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .sevbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
 .sys { margin-bottom: 14px; }
 .sys table td { font-size: 13px; }
+#toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); max-width: calc(100% - 32px);
+  background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 6px; font-size: 13px; z-index: 10; box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
 .empty { padding: 18px; text-align: center; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -205,7 +207,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
         </div>
         <div class="row" style="margin:12px 0 8px; justify-content: space-between">
           <input type="search" id="bookq" placeholder="Search formulas…" aria-label="Search formulas" style="flex:1 1 220px">
-          <button type="button" id="copybook">Copy all formula costs</button>
+          <button type="button" id="copybook">Export all formula costs (Excel)</button>
         </div>
         <div class="table-scroll tall">
           <table id="book">
@@ -247,13 +249,17 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
           <label class="f" style="flex:0 1 110px">Percent<input type="number" id="ppct" step="any"></label>
           <label class="f" style="flex:0 1 110px">Currency<input type="text" id="ccy" maxlength="6"></label>
         </div>
+        <div class="row" style="margin-top:12px">
+          <label class="f" style="flex:0 1 330px">pH adjustment allowance (lines given only as “drops”)<span class="row" style="gap:6px;align-items:center"><input type="number" id="phallow" min="0" step="any" style="width:90px"> mL per bottle / pen</span></label>
+          <span class="small muted" style="flex:1 1 260px">An estimate until the real volume is recorded. It is costed from the working dilution (e.g. 1 M NaOH / HCl) and its raw materials are added to the production plan. Set 0 to leave pH adjustment out.</span>
+        </div>
         <p class="small muted" style="margin:8px 0 0">Provisions apply to every formula, in the order listed. “% of running total” includes everything above it. Saved in this browser.</p>
       </section>
 
       <section class="panel" aria-labelledby="h-plan">
         <div class="panel-head">
           <div><span class="step">Step 5</span><h2 id="h-plan">Production plan &amp; stock check</h2></div>
-          <button type="button" id="copyreq">Copy requirement list</button>
+          <button type="button" id="copyreq">Export requirement list (Excel)</button>
         </div>
         <p class="small muted" style="margin:0 0 10px">Add the formulas you want to make and how much. Raw materials are added up across the plan and checked against the On Hand quantity in the inventory file.</p>
         <div class="plan-add">
@@ -263,7 +269,8 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
           <button type="button" class="primary" id="planadd">Add to plan</button>
           <button type="button" id="planall">Add all formulas</button>
           <button type="button" class="link" id="planclear">Clear plan</button>
-          <label class="f" style="flex:0 1 120px; margin-left:auto">Overage on quantities<span class="row" style="gap:6px;align-items:center"><input type="number" id="planover" min="0" step="any" style="width:70px"> %</span></label>
+          <label class="excl" style="margin-left:auto; align-self:center"><input type="checkbox" id="planround"> Round intermediates up to whole batches</label>
+          <label class="f" style="flex:0 1 120px">Overage on quantities<span class="row" style="gap:6px;align-items:center"><input type="number" id="planover" min="0" step="any" style="width:70px"> %</span></label>
         </div>
         <div class="table-scroll tall" style="margin-top:12px; max-height:360px">
           <table id="plan">
@@ -285,7 +292,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
       <section class="panel" aria-labelledby="h-rev">
         <div class="panel-head">
           <div><span class="step">Step 6</span><h2 id="h-rev">Formula review: gaps &amp; recommendations</h2></div>
-          <button type="button" id="copyrev">Copy report for Excel</button>
+          <button type="button" id="copyrev">Export report (Excel)</button>
         </div>
         <p class="small muted" style="margin:0 0 4px">Checks every formula against the inventory file and its own data: missing items, costs, units, volumes, packaging, stock and the warning notes written in the formula record. These are data checks. They do not replace a pharmacist's review of a formulation.</p>
         <div class="tally" id="revtally"></div>
@@ -309,14 +316,14 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
       </div>
       <div class="flags" id="flags"></div>
       <div class="actions">
-        <button type="button" class="primary" id="copy">Copy this costing for Excel</button>
+        <button type="button" class="primary" id="copy">Export this costing (Excel)</button>
       </div>
       <div id="copymsg" class="small muted" style="margin-top:6px"></div>
-      <textarea id="copyfallback" hidden readonly aria-label="Costing text to copy"></textarea>
     </aside>
   </div>
 </div>
 
+<div id="toast" role="status" aria-live="polite" hidden></div>
 <script>
 (function () {
 "use strict";
@@ -576,6 +583,7 @@ function rankMatches(name, dim) {
 }
 function lineDim(l, f) {
   if (l.unit === "%" || l.unit === "q.s.") return f && unitInfo(f.unit) ? unitInfo(f.unit).dim : null;
+  if (l.unit === "drops") return "vol";
   const u = unitInfo(l.unit); return u ? u.dim : null;
 }
 function autoMatch(l) {
@@ -630,7 +638,7 @@ function makeLine(name, role, pq, unitCell) {
   const rawUnit = str(unitCell || (pq && pq.unit) || "").toLowerCase();
   const l = { name: str(name), role: str(role), qty: pq && !pq.qs ? pq.qty : "", unit: unit || "g",
     matchId: null, manual: false, learned: false, conv: "", excluded: false, qsTo: pq && pq.qsTo || null };
-  if (/drop/.test(rawUnit)) { l.unit = "drops"; l.excluded = true; l.exclNote = "pH adjustment in drops"; }
+  if (/drop/.test(rawUnit)) l.unit = "drops";
   if (pq && pq.qs && pq.qsTo) l.qsUnit = canonUnit(pq.unit || unitCell);
   return l;
 }
@@ -723,7 +731,15 @@ function interCands(l) {
     const y = yieldOf(g); if (!y || (dim && y.dim !== dim)) return;
     let s = 0; const code = fCode(g);
     if (code && refs.includes(code)) s = 1;
-    else { const t = prep(cleanTitle(g.title)); const it = { _c: t.c, _j: t.j }; nameVariants(l.name).forEach(v => { s = Math.max(s, v.w * score(v, it)); }); }
+    else {
+      const t = prep(cleanTitle(g.title)); const it = { _c: t.c, _j: t.j };
+      nameVariants(l.name).forEach(v => { s = Math.max(s, v.w * score(v, it)); });
+      if (l.unit === "drops") {
+        // pH-adjustment drops are drawn from a working dilution: also compare with what the intermediate contains
+        g.lines.forEach(gl => { const p2 = prep(gl.name); const it2 = { _c: p2.c, _j: p2.j }; nameVariants(l.name).forEach(v => { s = Math.max(s, 0.95 * v.w * score(v, it2)); }); });
+        if (/working|dilution/i.test(g.title)) s += 0.1;
+      }
+    }
     if (s >= 0.6) out.push({ f: g, s });
   });
   return out.sort((a, b) => b.s - a.s).slice(0, 3);
@@ -751,7 +767,7 @@ function saveBook() {
   store.set("fc.book", { book: slim, cur });
 }
 function loadBook(saved) {
-  book = saved.book.map(f => { if (f.isInter == null) f.isInter = looksIntermediate(f); f.lines.forEach(l => { l._f = f; if (l.manual) relinkManual(l); else autoMatch(l); }); return f; });
+  book = saved.book.map(f => { if (f.isInter == null) f.isInter = looksIntermediate(f); f.lines.forEach(l => { if (l.unit === "drops" && l.exclNote) { l.excluded = false; l.exclNote = ""; } l._f = f; if (l.manual) relinkManual(l); else autoMatch(l); }); return f; });
   linkIntermediates();
   cur = Math.min(saved.cur || 0, book.length - 1);
 }
@@ -765,6 +781,12 @@ function calc(f, stack) {
     l.err = ""; l.base = null; l.dim = null; l.cost = null; l.invQty = null; l.invUnits = null; l.invUom = null; l.needConv = false; l.convAuto = false; l.interPer = null;
     if (l.excluded) return;
     if (l.unit === "q.s.") return;
+    if (l.unit === "drops") {
+      const a = parseFloat(phAllow);
+      if (a > 0) { l.dim = "vol"; l.base = a * Math.max(1, parseInt(f.n, 10) || 1); l.estimated = true; }
+      else l.estimated = false;
+      return;
+    }
     const q = parseFloat(l.qty);
     if (!(q >= 0)) { l.err = "Enter a quantity."; return; }
     if (l.unit === "%") { if (!bb) { l.err = "Enter a fill / batch size for % lines."; return; } l.dim = bb.dim; l.base = q / 100 * bb.v; return; }
@@ -823,6 +845,7 @@ const DEFAULT_PROVS = [
 ];
 const BASIS = { pctMat: "% of material cost", pctRun: "% of running total", batch: "Fixed per batch", unit: "Fixed per unit" };
 let provs = store.get("fc.provs", null) || DEFAULT_PROVS.map(p => ({ ...p }));
+let phAllow = store.get("fc.phAllow", 0.2);       // estimated mL of pH-adjustment solution per unit, for lines given only as "drops"
 const pricing = store.get("fc.pricing", null) || { method: "markup", pct: 35, ccy: "OMR" };
 function totals(f) {
   const M = calc(f);
@@ -887,6 +910,7 @@ function renderLines() {
     let chip;
     const g = interOf(l);
     if (l.excluded) chip = `<span class="chip off">Not costed</span>`;
+    else if (l.unit === "drops" && !(parseFloat(phAllow) > 0)) chip = `<span class="chip warn">pH drops not quantified</span>`;
     else if (g) chip = `<span class="chip learned">Made in-house</span>`;
     else if (!it) chip = `<span class="chip bad">No match</span>`;
     else if (l.manual || l.learned) chip = `<span class="chip learned">Your choice</span>`;
@@ -907,7 +931,7 @@ function renderLines() {
     return `<tr class="${l.excluded ? "excluded" : ""}">
       <td class="w-name"><input type="text" id="ln${i}" value="${esc(l.name)}" aria-label="Ingredient name">${l.role ? `<div class="role">${esc(l.role)}</div>` : ""}
         <label class="excl"><input type="checkbox" id="lx${i}" ${l.excluded ? "" : "checked"}> Include in cost</label>${l.excluded && l.exclNote ? `<div class="note">${esc(l.exclNote)}</div>` : ""}</td>
-      <td class="w-qty"><input type="number" id="lq${i}" step="any" min="0" value="${l.unit === "q.s." ? "" : esc(l.qty)}" ${l.unit === "q.s." ? "disabled placeholder=\"auto\"" : ""} aria-label="Quantity" class="num"></td>
+      <td class="w-qty"><input type="number" id="lq${i}" step="any" min="0" value="${l.unit === "q.s." || l.unit === "drops" ? "" : esc(l.qty)}" ${l.unit === "q.s." || l.unit === "drops" ? `disabled placeholder="${l.unit === "drops" ? "est." : "auto"}"` : ""} aria-label="Quantity" class="num">${l.unit === "drops" ? `<div class="note warn">${parseFloat(phAllow) > 0 ? `Estimated ${esc(phAllow)} mL per ${esc(f.per || "unit")} (step 4)` : "Set an allowance in step 4"}</div>` : ""}</td>
       <td class="w-unit"><select id="lu${i}" aria-label="Unit">${units.map(u => `<option ${u === l.unit ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></td>
       <td class="w-match">
         <input type="text" id="lm${i}" list="invlist" value="${it ? esc(itemLabel(it)) : ""}" placeholder="Search inventory…" aria-label="Inventory item">
@@ -1004,7 +1028,8 @@ function saveProvs() { store.set("fc.provs", provs); }
 /* ---------- production plan & stock check ---------- */
 let plan = store.get("fc.plan", []);              // [{ fid, qty, mode: "units" | "fill" }]
 let planOver = store.get("fc.planOver", 5);
-const savePlan = () => { store.set("fc.plan", plan); store.set("fc.planOver", planOver); };
+let planRound = store.get("fc.planRound", true);
+const savePlan = () => { store.set("fc.plan", plan); store.set("fc.planOver", planOver); store.set("fc.planRound", planRound); };
 const fById = (id) => book.find(f => f.id === id);
 function planUnits(p, f) {
   const q = parseFloat(p.qty) || 0;
@@ -1024,10 +1049,10 @@ function requirements() {
   const addF = (f, scale, label) => {
     calc(f);
     f.lines.forEach(l => {
-      if (l.excluded) return;
+      if (l.excluded || (l.unit === "drops" && l.base == null)) return;   // unquantified pH drops: flagged in the review
       const g = interOf(l);
       if (g && l.base != null && yieldOf(g) && yieldOf(g).dim === l.dim) {
-        const e = inter.get(g.id) || { f: g, need: 0, pending: 0, fromStock: 0, make: 0, uses: new Set(), stock: null, stockLeft: null };
+        const e = inter.get(g.id) || { f: g, need: 0, pending: 0, fromStock: 0, make: 0, prepared: 0, uses: new Set(), stock: null, stockLeft: null };
         e.need += l.base * scale; e.pending += l.base * scale; e.uses.add(label);
         const st = l.matchId && inv.byId.get(l.matchId);
         if (st && !e.stock && st.u && st.u.dim === l.dim) e.stock = st;
@@ -1060,7 +1085,11 @@ function requirements() {
       const use = e.stock ? Math.min(e.stockLeft, amt) : 0;
       e.stockLeft = e.stock ? e.stockLeft - use : null; e.fromStock += use;
       const make = amt - use; e.make += make;
-      if (make > 1e-12) addF(e.f, make / yieldOf(e.f).base, e.f.title);
+      const yb = yieldOf(e.f).base;
+      // when rounding, prepare whole batches; leftover from an earlier batch covers later needs first
+      const target = planRound ? Math.ceil(e.make / yb - 1e-9) * yb : e.make;
+      const extra = target - e.prepared;
+      if (extra > 1e-12) { e.prepared += extra; addF(e.f, extra / yb, e.f.title); }
     });
   }
   if (book[cur]) calc(book[cur]);                    // leave the selected formula's line state as displayed
@@ -1122,10 +1151,11 @@ function renderPlan() {
   }).join("") : `<tr><td colspan="5" class="empty">${plan.length ? "No matched raw materials in this plan." : "Requirements appear here once you add a formula to the plan."}</td></tr>`;
   const y = (e) => yieldOf(e.f);
   $("reqextra").innerHTML =
-    (R.inter.length ? `<h3 class="sub3">Intermediates (${R.inter.length})</h3><div class="table-scroll"><table><thead><tr><th>Intermediate</th><th class="num">Needed</th><th class="num">From ready-made stock</th><th class="num">To prepare</th><th class="num">Batches</th></tr></thead><tbody>` +
+    (R.inter.length ? `<h3 class="sub3">Intermediates (${R.inter.length})</h3><div class="table-scroll"><table><thead><tr><th>Intermediate</th><th class="num">Needed</th><th class="num">From ready-made stock</th><th class="num">To prepare</th><th class="num">Batches</th><th class="num">Left over</th></tr></thead><tbody>` +
       R.inter.map(e => `<tr><td><div>${esc(e.f.title)}</div><div class="used">for ${esc([...e.uses].join(", "))}${e.stock ? ` · stock item: ${esc(e.stock.name)}` : ""}</div></td>
         <td class="num">${fmtQty(e.need, y(e).dim)}</td><td class="num">${e.stock ? fmtQty(e.fromStock, y(e).dim) : "–"}</td>
-        <td class="num">${fmtQty(e.make, y(e).dim)}</td><td class="num">${round(e.make / y(e).base, 2)} × ${esc(e.f.size)} ${esc(e.f.unit)}</td></tr>`).join("") +
+        <td class="num">${fmtQty(e.prepared, y(e).dim)}</td><td class="num">${round(e.prepared / y(e).base, 2)} × ${esc(e.f.size)} ${esc(e.f.unit)}</td>
+        <td class="num">${fmtQty(e.prepared - e.make, y(e).dim)}</td></tr>`).join("") +
       `</tbody></table></div><p class="small muted">The raw materials for the quantity to prepare are already included in the requirement list above.</p>` : "") +
     (R.missing.length ? `<h3 class="sub3">Not in the inventory list (${R.missing.length})</h3><div class="table-scroll"><table><thead><tr><th>Ingredient</th><th class="num">Required</th><th>Used in</th></tr></thead><tbody>` +
       R.missing.map(m => `<tr><td>${esc(m.name)}</td><td class="num">${m.known ? fmtQty(m.base, m.dim) : "–"}</td><td class="small">${esc([...m.uses].join(", "))}</td></tr>`).join("") +
@@ -1163,21 +1193,26 @@ $("planall").addEventListener("click", () => {
 });
 $("planclear").addEventListener("click", () => { plan = []; savePlan(); renderPlan(); });
 $("bookq").addEventListener("input", updatePlanAllLabel);
+$("planround").checked = planRound;
+$("planround").addEventListener("change", e => { planRound = e.target.checked; savePlan(); renderPlan(); });
 $("planover").addEventListener("change", e => { planOver = e.target.value; savePlan(); renderPlan(); });
 $("copyreq").addEventListener("click", () => {
-  const R = requirements(), rows = [];
-  rows.push(["Production plan"], ["Formula", "Quantity", "Of", "Units"]);
-  plan.forEach(p => { const f = fById(p.fid); rows.push([f.title, p.qty, p.mode === "fill" ? f.unit : (f.per || "unit") + "s", round(planUnits(p, f), 3)]); });
-  rows.push(["Overage on quantities %", planOver], [], ["Item code", "Raw material / component", "UOM", "Required", "On hand", "Balance after", "Status", "To buy", "Cost per UOM", "Used for"]);
+  if (!plan.length) { notify("Add a formula to the plan first."); return; }
+  const R = requirements(), planRows = [["Formula", "Quantity", "Of", "Units", "Material cost", "Total cost", "Currency"]];
+  plan.forEach(p => { const f = fById(p.fid), t = totals(f), u = planUnits(p, f); planRows.push([f.title, +p.qty, p.mode === "fill" ? f.unit : (f.per || "unit") + "s", round(u, 3), round(t.M / t.n * u, 4), round(t.cpu * u, 4), pricing.ccy]); });
+  planRows.push([], ["Overage on quantities %", +planOver], ["Intermediates rounded up to whole batches", planRound ? "yes" : "no"], ["pH adjustment allowance (mL per unit)", +phAllow || 0]);
+  const rows = [["Item code", "Raw material / component", "UOM", "Required", "On hand", "Balance after", "Status", "To buy", "Cost per UOM", "Used for"]];
   R.rows.forEach(r => rows.push([r.item.code, r.item.name, r.item.unitStr, round(r.qty, 4), isFinite(r.item.onHand) ? r.item.onHand : "", isFinite(r.balance) ? round(r.balance, 4) : "",
     STATUS[r.status][1], r.status === "short" || r.status === "out" ? round(toBuy(r), 4) : "", r.item.price, [...r.names].join(", ")]));
   R.missing.forEach(m => rows.push(["", m.name, "", m.known ? fmtQty(m.base, m.dim) : "", "", "", "Not in inventory list", m.known ? fmtQty(m.base, m.dim) : "", "", [...m.uses].join(", ")]));
   R.info.forEach(x => rows.push([x.item.code, x.item.name, x.item.unitStr, "", x.item.onHand, "", "Quantity unknown: " + x.why, "", x.item.price, x.name]));
+  const sheets = [["Requirements", rows], ["Plan", planRows]];
   if (R.inter.length) {
-    rows.push([], ["Intermediate", "Unit", "Needed", "From ready-made stock", "To prepare", "Batches", "Used for"]);
-    R.inter.forEach(e => { const y = yieldOf(e.f); rows.push([e.f.title, BASE[y.dim], round(e.need, 3), round(e.fromStock, 3), round(e.make, 3), round(e.make / y.base, 3), [...e.uses].join(", ")]); });
+    const ir = [["Intermediate", "Unit", "Needed", "From ready-made stock", "To prepare", "Batches", "Left over", "Used for"]];
+    R.inter.forEach(e => { const y = yieldOf(e.f); ir.push([e.f.title, BASE[y.dim], round(e.need, 3), round(e.fromStock, 3), round(e.prepared, 3), round(e.prepared / y.base, 3), round(e.prepared - e.make, 3), [...e.uses].join(", ")]); });
+    sheets.push(["Intermediates", ir]);
   }
-  copyText(tsv(rows), "Copied the requirement list. Paste into Excel.");
+  exportXlsx("Requirement list", sheets);
 });
 
 /* ---------- formula review: gaps & recommendations ---------- */
@@ -1187,7 +1222,12 @@ function reviewFormula(f) {
   const add = (sev, text, rec) => out.push({ sev, text, rec });
   const per = f.per || "unit";
   const active = f.lines.filter(l => !l.excluded);
+  active.filter(l => l.unit === "drops").forEach(l => {
+    if (parseFloat(phAllow) > 0) add("warning", `pH adjustment (${l.name}) has no quantity in the formula record; costed and planned with an estimated ${phAllow} mL per ${per}.`, "Record the actual volume of NaOH / HCl used per batch in the MFR and batch records, then replace the estimate.");
+    else add("warning", `pH adjustment (${l.name}) has no quantity in the formula record, so it is not costed and not in the production plan.`, "Record the typical volume used per batch, or set a pH adjustment allowance in step 4.");
+  });
   active.forEach(l => {
+    if (l.unit === "drops" && !(parseFloat(phAllow) > 0)) return;
     const g = interOf(l), it = l.matchId ? inv.byId.get(l.matchId) : null;
     if (g) {
       const gr = reviewCache.get(g.id) || reviewFormula(g);
@@ -1238,14 +1278,15 @@ function reviewAll() {
   const per = book.map(f => { const r = reviewCache.get(f.id) || reviewFormula(f); reviewCache.set(f.id, r); return { f, r }; });
   if (book[cur]) calc(book[cur]);
   /* system-wide: problems in the item master that affect several formulas */
-  const zero = new Map(), miss = new Map();
+  const zero = new Map(), miss = new Map(), drops = new Set();
   book.forEach(f => f.lines.forEach(l => {
-    if (l.excluded || interOf(l)) return;
+    if (!l.excluded && l.unit === "drops") drops.add(f.title);
+    if (l.excluded || interOf(l) || (l.unit === "drops" && !(parseFloat(phAllow) > 0))) return;
     const it = l.matchId && inv.byId.get(l.matchId);
     if (it && !(it.price > 0)) { const e = zero.get(it.id) || { it, fs: new Set() }; e.fs.add(f.title); zero.set(it.id, e); }
     if (!it) { const key = normKey(l.name); const e = miss.get(key) || { name: l.name, fs: new Set() }; e.fs.add(f.title); miss.set(key, e); }
   }));
-  return { per, zero: [...zero.values()].sort((a, b) => b.fs.size - a.fs.size), miss: [...miss.values()].sort((a, b) => b.fs.size - a.fs.size) };
+  return { per, drops: [...drops], zero: [...zero.values()].sort((a, b) => b.fs.size - a.fs.size), miss: [...miss.values()].sort((a, b) => b.fs.size - a.fs.size) };
 }
 function renderReview() {
   if (!book.length) { $("revtally").innerHTML = ""; $("revsys").innerHTML = ""; $("revlist").innerHTML = `<p class="empty">Load formulas to see the review.</p>`; $("revcount").textContent = ""; return; }
@@ -1258,9 +1299,11 @@ function renderReview() {
     <div class="t warn"><b>${warnOnly}</b><span>Warnings only</span></div>
     <div class="t bad"><b>${crit}</b><span>Critical gaps</span></div>
     <div class="t bad"><b>${R.miss.length}</b><span>Ingredients missing from inventory</span></div>
-    <div class="t bad"><b>${R.zero.length}</b><span>Items with zero / negative cost</span></div>`;
+    <div class="t bad"><b>${R.zero.length}</b><span>Items with zero / negative cost</span></div>
+    <div class="t warn"><b>${R.drops.length}</b><span>pH adjustment not quantified</span></div>`;
   const listTbl = (rows, head, cell) => `<div class="table-scroll" style="max-height:240px; overflow-y:auto"><table><thead><tr>${head}</tr></thead><tbody>${rows.map(cell).join("")}</tbody></table></div>`;
   $("revsys").innerHTML =
+    (R.drops.length ? `<div class="flags" style="margin:0 0 6px"><div class="warn"><strong>pH adjustment is not quantified in ${R.drops.length} formulas.</strong> They list 1 M NaOH / HCl as “q.s. drops” with no volume. ${parseFloat(phAllow) > 0 ? `They are costed and planned with an estimate of ${esc(phAllow)} mL per unit (step 4).` : "They are not costed and not in the production plan."} Record the typical volume used per batch in the master formula record.</div></div>` : "") +
     (R.zero.length ? `<h3 class="sub3">Fix costs in the item master (${R.zero.length} items)</h3>` + listTbl(R.zero.slice(0, 50), `<th>Item</th><th class="num">Avg cost</th><th class="num">Formulas</th>`,
       e => `<tr><td>${esc(e.it.name)} <span class="muted small">${esc(e.it.code)}</span></td><td class="num">${money(e.it.price)} / ${esc(e.it.unitStr)}</td><td class="num" title="${esc([...e.fs].join(", "))}">${e.fs.size}</td></tr>`) : "") +
     (R.miss.length ? `<h3 class="sub3">Create or match in inventory (${R.miss.length} ingredients)</h3>` + listTbl(R.miss.slice(0, 50), `<th>Ingredient</th><th class="num">Formulas</th>`,
@@ -1283,13 +1326,23 @@ function renderReview() {
 }
 $("revfilter").addEventListener("change", renderReview);
 $("copyrev").addEventListener("click", () => {
-  const R = reviewAll(), rows = [["Formula", "Severity", "Finding", "Recommendation"]];
-  R.per.forEach(({ f, r }) => { if (!r.length) rows.push([f.title, "OK", "No gaps found", ""]); r.forEach(x => rows.push([f.title, SEV[x.sev][1], x.text, x.rec])); });
-  rows.push([], ["Item master: zero / negative cost", "Item code", "Avg cost", "UOM", "Formulas affected"]);
-  R.zero.forEach(e => rows.push([e.it.name, e.it.code, e.it.price, e.it.unitStr, [...e.fs].join(", ")]));
-  rows.push([], ["Missing from inventory", "Formulas affected"]);
-  R.miss.forEach(e => rows.push([e.name, [...e.fs].join(", ")]));
-  copyText(tsv(rows), "Copied the review report. Paste into Excel.");
+  if (!book.length) { notify("Load formulas first."); return; }
+  const R = reviewAll(), order = { critical: 0, warning: 1, info: 2 };
+  const sum = [["Formula", "Critical", "Warnings", "Notes", "Status"]];
+  const rows = [["Formula", "Severity", "Finding", "Recommendation"]];
+  R.per.forEach(({ f, r }) => {
+    const c = { critical: 0, warning: 0, info: 0 }; r.forEach(x => c[x.sev]++);
+    sum.push([f.title, c.critical, c.warning, c.info, c.critical ? "Critical gaps" : c.warning ? "Warnings only" : "Ready to cost"]);
+    if (!r.length) rows.push([f.title, "OK", "No gaps found", ""]);
+    [...r].sort((a, b) => order[a.sev] - order[b.sev]).forEach(x => rows.push([f.title, SEV[x.sev][1], x.text, x.rec]));
+  });
+  const zero = [["Item", "Item code", "Avg cost", "UOM", "Formulas affected", "Formula names"]];
+  R.zero.forEach(e => zero.push([e.it.name, e.it.code, e.it.price, e.it.unitStr, e.fs.size, [...e.fs].join(", ")]));
+  const miss = [["Ingredient", "Formulas affected", "Formula names"]];
+  R.miss.forEach(e => miss.push([e.name, e.fs.size, [...e.fs].join(", ")]));
+  const ph = [["pH adjustment status", parseFloat(phAllow) > 0 ? `Estimated ${phAllow} mL per unit` : "Not costed"], ["Formulas", "Recommendation"]];
+  R.drops.forEach(t => ph.push([t, "Record the actual NaOH / HCl volume used per batch in the MFR"]));
+  exportXlsx("Formula review", [["Summary", sum], ["Findings", rows], ["Item master costs", zero], ["Missing from inventory", miss], ["pH adjustment", ph]]);
 });
 
 /* ---------- copy for Excel ---------- */
@@ -1299,9 +1352,12 @@ function formulaRows(f) {
   out.push(["Ingredient", "Role", "Qty", "Unit", "Inventory code", "Inventory item", "Cost per UOM", "UOM", "Qty used", "Line cost", "Match"]);
   f.lines.forEach(l => {
     const it = l.matchId ? inv.byId.get(l.matchId) : null;
-    out.push([l.name, l.role || "", l.unit === "q.s." ? "" : l.qty, l.unit, it ? it.code : "", l.excluded ? "NOT COSTED" : it ? it.name : "NOT MATCHED", it ? it.price : "", it ? it.unitStr : "",
+    const g = interOf(l);
+    out.push([l.name, l.role || "", l.unit === "q.s." || l.unit === "drops" ? "" : +l.qty, l.unit === "drops" && l.base != null ? "drops (est. " + phAllow + " mL)" : l.unit,
+      g ? "" : it ? it.code : "", l.excluded ? "NOT COSTED" : g ? "Made from " + g.title : it ? it.name : "NOT MATCHED",
+      g ? (l.interPer != null ? round(l.interPer, 6) : "") : it ? it.price : "", g ? BASE[l.dim] : it ? it.unitStr : "",
       l.base != null ? fmtQty(l.base, l.dim) : "", l.cost != null ? round(l.cost, 5) : "",
-      l.excluded ? "excluded" : !it ? "none" : (l.manual || l.learned) ? "chosen" : Math.round(l.conf * 100) + "%"]);
+      l.excluded ? "excluded" : g ? "intermediate" : !it ? "none" : (l.manual || l.learned) ? "chosen" : Math.round(l.conf * 100) + "%"]);
   });
   out.push([], ["Materials & components", "", "", "", "", "", "", "", "", round(t.M, 4)]);
   t.rows.forEach(r => out.push([r.name, "", "", "", "", BASIS[r.p.basis], r.p.v, "", "", round(r.amt, 4)]));
@@ -1309,17 +1365,33 @@ function formulaRows(f) {
     ["Selling price per " + (f.per || "unit") + ` (${pricing.method === "margin" ? "margin" : "markup"} ${pricing.pct}%)`, "", "", "", "", "", "", "", "", round(t.spu, 4)], ["Currency", pricing.ccy]);
   return out;
 }
-function copyText(txt, okMsg) {
-  const fb = $("copyfallback");
-  const fallback = () => { fb.hidden = false; fb.value = txt; fb.focus(); fb.select(); $("copymsg").textContent = "Select all of the text below, copy it (Ctrl/Cmd + C), then paste into Excel."; };
-  try { navigator.clipboard.writeText(txt).then(() => { fb.hidden = true; $("copymsg").textContent = okMsg; }, fallback); } catch (e) { fallback(); }
+let toastT;
+function notify(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 4000); }
+/* download an .xlsx workbook: sheets = [[name, rows], ...] */
+function exportXlsx(base, sheets) {
+  if (typeof XLSX === "undefined") { notify("The Excel library did not load. Check your internet connection and reload the page."); return; }
+  try {
+    const wb = XLSX.utils.book_new();
+    sheets.forEach(([name, rows]) => {
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const widths = [];
+      rows.forEach(r => r.forEach((c, i) => { widths[i] = Math.max(widths[i] || 8, Math.min(60, String(c ?? "").length + 2)); }));
+      ws["!cols"] = widths.map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, String(name).replace(/[\\/?*\[\]:]/g, " ").slice(0, 31));
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const file = `${base.normalize("NFKD").replace(/[^\w\s().,+-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80)} ${stamp}.xlsx`;
+    XLSX.writeFile(wb, file);
+    notify(`Downloaded ${file}`);
+  } catch (e) { notify("Could not create the Excel file: " + (e.message || e)); }
 }
-const tsv = (rows) => rows.map(r => r.map(c => String(c ?? "").replace(/[\t\n]/g, " ")).join("\t")).join("\n");
-$("copy").addEventListener("click", () => { if (book[cur]) copyText(tsv(formulaRows(book[cur])), "Copied. Paste into Excel for the full costing sheet."); });
+$("copy").addEventListener("click", () => { if (book[cur]) exportXlsx("Costing - " + book[cur].title, [["Costing", formulaRows(book[cur])]]); });
 $("copybook").addEventListener("click", () => {
-  const rows = [["Formula", "Source", "Ingredients matched", "Not matched", "To check", "Materials", "Total cost", "Cost per unit", "Selling price per unit", "Currency"]];
-  book.forEach(f => { const t = totals(f); rows.push([f.title, f.source, t.matched + "/" + t.count, t.unmatched, t.check, round(t.M, 4), round(t.total, 4), round(t.cpu, 4), round(t.spu, 4), pricing.ccy]); });
-  copyText(tsv(rows), `Copied ${book.length} formulas. Paste into Excel.`);
+  if (!book.length) { notify("Load formulas first."); return; }
+  const rows = [["Formula", "Source", "Intermediate", "Ingredients matched", "Not matched", "To check", "Materials", "Total cost", "Cost per unit", "Selling price per unit", "Currency"]];
+  book.forEach(f => { const t = totals(f); rows.push([f.title, f.source, f.isInter ? "yes" : "", t.matched + "/" + t.count, t.unmatched, t.check, round(t.M, 4), round(t.total, 4), round(t.cpu, 4), round(t.spu, 4), pricing.ccy]); });
+  if (book[cur]) calc(book[cur]);
+  exportXlsx("Formula costs", [["Formula costs", rows]]);
 });
 
 /* ---------- file reading ---------- */
@@ -1403,6 +1475,8 @@ $("resetprov").addEventListener("click", () => { provs = DEFAULT_PROVS.map(p => 
 $("pmethod").value = pricing.method; $("ppct").value = pricing.pct; $("ccy").value = pricing.ccy;
 $("pmethod").addEventListener("change", e => { pricing.method = e.target.value; store.set("fc.pricing", pricing); renderSummary(); renderBook(); });
 $("ppct").addEventListener("input", e => { pricing.pct = e.target.value; store.set("fc.pricing", pricing); renderSummary(); renderBook(); });
+$("phallow").value = phAllow;
+$("phallow").addEventListener("change", e => { phAllow = e.target.value; store.set("fc.phAllow", phAllow); changed(); });
 $("ccy").addEventListener("input", e => { pricing.ccy = e.target.value; store.set("fc.pricing", pricing); renderLines(); renderSummary(); renderBook(); });
 
 /* ---------- example data (made up, in the same layout as the real exports) ---------- */

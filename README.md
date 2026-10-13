@@ -9,7 +9,7 @@ A single-page tool for costing compounding formulas, planning production and che
 2. **Formulas**: upload a master formula record (Excel, every formula block in every sheet) or a Word (.docx) formula, or paste one.
 3. **Matching**: each ingredient is matched to the closest inventory item, with confidence and alternatives, or to an intermediate formula (e.g. acetate buffer → INT-06). Corrections are remembered.
 4. **Provisions & pricing**: overage, labour, QC, overheads, markup or target margin.
-5. **Production plan & stock check**: choose formulas (or all at once) and quantities; get total raw materials required versus On Hand, with shortfalls and a copyable purchase list. Intermediates (buffers, stock solutions) use ready-made stock first, then are expanded into their own raw materials.
+5. **Production plan & stock check**: choose formulas (or all at once) and quantities; get total raw materials required versus On Hand, with shortfalls and an Excel purchase list. Intermediates (buffers, stock solutions) use ready-made stock first, then are expanded into their own raw materials.
 6. **Formula review**: critical gaps, warnings and recommendations for every formula, plus item-master clean-up lists.
 
 ## Privacy
