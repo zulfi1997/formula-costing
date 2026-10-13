@@ -1,0 +1,15 @@
+# Compounding Formula Costing
+
+A single-page tool for costing compounding formulas, planning production and checking raw-material stock.
+
+**Open it:** https://zulfi1997.github.io/formula-costing/
+
+## What it does
+1. **Inventory**: upload the Item Valuation Summary (Excel/CSV). Avg Cost per UOM, On Hand and categories are read automatically.
+2. **Formulas**: upload a master formula record (Excel, every formula block in every sheet) or a Word (.docx) formula, or paste one.
+3. **Matching**: each ingredient is matched to the closest inventory item, with confidence and alternatives. Corrections are remembered.
+4. **Provisions & pricing**: overage, labour, QC, overheads, markup or target margin.
+5. **Production plan & stock check**: choose formulas (or all at once) and quantities; get total raw materials required versus On Hand, with shortfalls and a copyable purchase list.
+
+## Privacy
+Files are read in the browser only and never uploaded. Matches, provisions and plans are saved in each user's own browser (localStorage).

@@ -1,0 +1,1235 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compounding Formula Costing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+/* Layout: a costing worksheet. Inputs and the formula book stack on the left; the selected formula's cost summary stays pinned on the right; one column on phones. */
+:root {
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --ink: #17262a;
+  --muted: #5b6b6e;
+  --line: #d9e1df;
+  --accent: #0d6e6a;
+  --accent-soft: #e2f0ee;
+  --ok: #1d7a3e; --ok-bg: #e3f3e8;
+  --warn: #9a5b00; --warn-bg: #fbefd9;
+  --bad: #b3261e; --bad-bg: #fbe4e2;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111a1c; --surface: #182427; --ink: #e3ecea; --muted: #94a6a8; --line: #2c3c3f;
+  --accent: #4fc2b8; --accent-soft: #19393a;
+  --ok: #6fd28f; --ok-bg: #173323; --warn: #f0b85a; --warn-bg: #3a2c12; --bad: #ff8a80; --bad-bg: #3d1c1a;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111a1c; --surface: #182427; --ink: #e3ecea; --muted: #94a6a8; --line: #2c3c3f;
+  --accent: #4fc2b8; --accent-soft: #19393a;
+  --ok: #6fd28f; --ok-bg: #173323; --warn: #f0b85a; --warn-bg: #3a2c12; --bad: #ff8a80; --bad-bg: #3d1c1a;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1360px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 18px; }
+h1 { font-family: var(--display); font-weight: 600; font-size: 26px; margin: 0; letter-spacing: .2px; text-wrap: balance; }
+.sub { color: var(--muted); margin: 2px 0 0; max-width: 72ch; }
+.privacy { font-size: 12px; color: var(--muted); }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 18px; align-items: start; }
+@media (max-width: 1000px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+section.panel, aside.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.panel h2 { font-family: var(--display); font-weight: 600; font-size: 17px; margin: 0; text-wrap: balance; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 12px; }
+.step { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+input, select, textarea, button { font: inherit; color: var(--ink); }
+input[type=text], input[type=number], input[type=search], select, textarea {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; min-width: 0; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 13px; resize: vertical; }
+button { cursor: pointer; border-radius: 5px; padding: 7px 12px; border: 1px solid var(--line); background: var(--surface); }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 500; }
+button.link { border: 0; background: none; padding: 2px 4px; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.file { position: relative; overflow: hidden; display: inline-flex; }
+.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.file:focus-within button { outline: 2px solid var(--accent); outline-offset: 1px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.status { font-size: 13px; padding: 8px 10px; border-radius: 5px; background: var(--accent-soft); }
+.status.sample { background: var(--warn-bg); color: var(--warn); }
+.status.err { background: var(--bad-bg); color: var(--bad); }
+
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+.table-scroll.tall { max-height: 420px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+th { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); background: var(--bg); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+tr:last-child td { border-bottom: 0; }
+#book tbody tr { cursor: pointer; }
+#book tbody tr:hover td { background: var(--bg); }
+#book tbody tr.sel td { background: var(--accent-soft); }
+#book .fname { font-weight: 500; }
+#book .src { font-size: 11px; color: var(--muted); }
+#lines td input[type=text], #lines td input[type=number], #lines td select { width: 100%; }
+#lines tr.excluded td { opacity: .55; }
+.w-name { min-width: 180px; } .w-qty { width: 88px; } .w-unit { width: 78px; } .w-match { min-width: 270px; }
+.role { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; white-space: nowrap; }
+.chip.ok { color: var(--ok); background: var(--ok-bg); }
+.chip.warn { color: var(--warn); background: var(--warn-bg); }
+.chip.bad { color: var(--bad); background: var(--bad-bg); }
+.chip.learned { color: var(--accent); background: var(--accent-soft); }
+.chip.off { color: var(--muted); background: var(--bg); }
+.alts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center; }
+.alts button { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--bg); text-align: left; }
+.note { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.note.bad { color: var(--bad); }
+.note.warn { color: var(--warn); }
+.iteminfo { font-size: 11px; color: var(--muted); margin-top: 3px; font-family: var(--mono); }
+.conv { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: var(--muted); margin-top: 5px; }
+#lines .conv input[type=number] { width: 90px; padding: 3px 6px; }
+.excl { font-size: 11px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; margin-top: 4px; }
+
+.cats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cats label { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 99px; background: var(--bg); cursor: pointer; }
+.cats label.on { border-color: var(--accent); background: var(--accent-soft); }
+
+#provs .prow { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.3fr) 96px 28px; gap: 6px; align-items: center; }
+#provs { display: flex; flex-direction: column; gap: 6px; }
+#provs input, #provs select { width: 100%; }
+.x { padding: 4px 0; width: 28px; color: var(--muted); }
+@media (max-width: 520px) { #provs .prow { grid-template-columns: minmax(0, 1fr) 96px 28px; } #provs .prow .pb { grid-column: 1 / -1; grid-row: 2; } }
+
+aside.summary { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+.sum-title { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 0 0 2px; overflow-wrap: anywhere; text-wrap: balance; }
+dl.sum { margin: 12px 0 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; }
+dl.sum dt { color: var(--muted); overflow-wrap: anywhere; }
+dl.sum dd { margin: 0; }
+dl.sum .rule { grid-column: 1 / -1; border-top: 1px solid var(--line); margin: 4px 0; }
+dl.sum .strong { color: var(--ink); font-weight: 600; }
+.big { margin-top: 14px; padding: 12px; border-radius: 6px; background: var(--accent-soft); display: grid; gap: 8px; }
+.big .k { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.big .v { font-family: var(--mono); font-size: 24px; font-weight: 500; color: var(--accent); font-variant-numeric: tabular-nums; }
+.flags { margin-top: 12px; font-size: 12px; display: grid; gap: 4px; }
+.flags div { padding: 6px 8px; border-radius: 5px; }
+.flags .warn { background: var(--warn-bg); color: var(--warn); }
+.flags .bad { background: var(--bad-bg); color: var(--bad); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.mapgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+.mapgrid select { width: 100%; }
+#copyfallback { width: 100%; min-height: 90px; margin-top: 8px; }
+.plan-add { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.tally { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+.tally .t { padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); min-width: 120px; }
+.tally .t b { display: block; font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tally .t span { font-size: 12px; color: var(--muted); }
+.tally .t.ok b { color: var(--ok); } .tally .t.warn b { color: var(--warn); } .tally .t.bad b { color: var(--bad); }
+#plan input[type=number] { width: 90px; }
+#plan select { min-width: 0; }
+#req td .used { font-size: 11px; color: var(--muted); margin-top: 2px; }
+h3.sub3 { font-family: var(--display); font-weight: 600; font-size: 14px; margin: 16px 0 8px; }
+.empty { padding: 18px; text-align: center; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Compounding Formula Costing</h1>
+      <p class="sub">Load the Item Valuation Summary, then a master formula record (Excel or Word). Every formula in the file is matched to inventory items and costed per unit. Review the matches, add provisions, and copy the result into Excel.</p>
+    </div>
+    <span class="privacy">Files are read in your browser only. Nothing is uploaded.</span>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+
+      <section class="panel" aria-labelledby="h-inv">
+        <div class="panel-head">
+          <div><span class="step">Step 1</span><h2 id="h-inv">Inventory (Item Valuation Summary)</h2></div>
+          <div class="row">
+            <span class="file"><button type="button" class="primary" tabindex="-1">Upload inventory Excel / CSV</button><input id="invfile" type="file" accept=".xlsx,.xls,.csv,.txt" aria-label="Upload inventory file"></span>
+            <button type="button" id="loadsample">Load example data</button>
+          </div>
+        </div>
+        <div id="invstatus" class="status"></div>
+        <div id="catwrap" style="margin-top:10px">
+          <div class="small muted">Categories used for matching. Turn off categories that should never be matched to a formula, such as lab tests.</div>
+          <div class="cats" id="cats"></div>
+        </div>
+        <details style="margin-top:10px">
+          <summary>Column mapping</summary>
+          <p class="small muted">Detected from the header row. Change a column if the guess is wrong. The price is read as the cost of one UOM (for example Avg Cost per Gram).</p>
+          <div class="mapgrid" id="mapgrid"></div>
+        </details>
+      </section>
+
+      <section class="panel" aria-labelledby="h-form">
+        <div class="panel-head">
+          <div><span class="step">Step 2</span><h2 id="h-form">Formulas</h2></div>
+          <div class="row">
+            <span class="file"><button type="button" class="primary" tabindex="-1">Upload formulas (Excel / Word)</button><input id="formfile" type="file" accept=".xlsx,.xls,.csv,.docx,.txt" aria-label="Upload formula file"></span>
+            <button type="button" id="showpaste">Paste a formula</button>
+          </div>
+        </div>
+        <div id="formstatus" class="status" hidden></div>
+        <div id="pastebox" hidden style="margin-top:10px">
+          <label class="f" for="ftext">One ingredient per line: name, quantity, unit. Rows copied from Excel or a Word table work too.</label>
+          <textarea id="ftext" spellcheck="false" placeholder="Ascorbic acid (Vit C)	4000	mg&#10;Sterile Water for Injection	45	mL&#10;50 mL amber glass bottle	1	each"></textarea>
+          <div class="row" style="margin-top:8px">
+            <label class="f" style="flex:2 1 200px">Formula name<input type="text" id="pname" value="Pasted formula"></label>
+            <button type="button" class="primary" id="parse">Add to formula list</button>
+          </div>
+        </div>
+        <div class="row" style="margin:12px 0 8px; justify-content: space-between">
+          <input type="search" id="bookq" placeholder="Search formulas…" aria-label="Search formulas" style="flex:1 1 220px">
+          <button type="button" id="copybook">Copy all formula costs</button>
+        </div>
+        <div class="table-scroll tall">
+          <table id="book">
+            <thead><tr><th>Formula</th><th class="num">Matched</th><th class="num">Cost / unit</th><th class="num">Price / unit</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-lines">
+        <div class="panel-head">
+          <div><span class="step">Step 3</span><h2 id="h-lines">Selected formula: ingredient matching</h2></div>
+          <div class="small muted" id="learnedinfo"></div>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <label class="f" style="flex:3 1 240px">Formula<input type="text" id="fname"></label>
+          <label class="f" style="flex:1 1 90px">Fill / batch size<input type="number" id="bsize" min="0" step="any"></label>
+          <label class="f" style="flex:0 1 80px">Unit<select id="bunit"><option>mL</option><option>g</option><option>L</option><option>kg</option></select></label>
+          <label class="f" style="flex:1 1 130px">Quantities are for<span class="row" style="gap:6px; align-items:center"><input type="number" id="nunits" min="1" step="1" style="width:70px"> <span id="unitword">unit(s)</span></span></label>
+        </div>
+        <div class="table-scroll">
+          <table id="lines">
+            <thead><tr><th>Formula ingredient</th><th>Qty</th><th>Unit</th><th>Inventory item</th><th class="num">Qty used</th><th class="num">Line cost</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">Pick a different item when a match is wrong. Your choice is remembered for that ingredient name in every formula. <span class="chip ok">Matched</span> <span class="chip warn">Check</span> <span class="chip bad">No match</span> <span class="chip learned">Your choice</span></p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-prov">
+        <div class="panel-head">
+          <div><span class="step">Step 4</span><h2 id="h-prov">Provisions &amp; pricing</h2></div>
+          <div class="row"><button type="button" id="addprov">Add provision</button><button type="button" class="link" id="resetprov">Reset to defaults</button></div>
+        </div>
+        <div id="provs"></div>
+        <div class="row" style="margin-top:14px">
+          <label class="f" style="flex:1 1 160px">Pricing method<select id="pmethod"><option value="markup">Markup on cost</option><option value="margin">Target gross margin</option></select></label>
+          <label class="f" style="flex:0 1 110px">Percent<input type="number" id="ppct" step="any"></label>
+          <label class="f" style="flex:0 1 110px">Currency<input type="text" id="ccy" maxlength="6"></label>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">Provisions apply to every formula, in the order listed. “% of running total” includes everything above it. Saved in this browser.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-plan">
+        <div class="panel-head">
+          <div><span class="step">Step 5</span><h2 id="h-plan">Production plan &amp; stock check</h2></div>
+          <button type="button" id="copyreq">Copy requirement list</button>
+        </div>
+        <p class="small muted" style="margin:0 0 10px">Add the formulas you want to make and how much. Raw materials are added up across the plan and checked against the On Hand quantity in the inventory file.</p>
+        <div class="plan-add">
+          <label class="f" style="flex:3 1 240px">Formula<select id="planf"></select></label>
+          <label class="f" style="flex:0 1 100px">Make<input type="number" id="planq" min="0" step="any" value="10"></label>
+          <label class="f" style="flex:0 1 120px">Of<select id="planm"></select></label>
+          <button type="button" class="primary" id="planadd">Add to plan</button>
+          <button type="button" id="planall">Add all formulas</button>
+          <button type="button" class="link" id="planclear">Clear plan</button>
+          <label class="f" style="flex:0 1 120px; margin-left:auto">Overage on quantities<span class="row" style="gap:6px;align-items:center"><input type="number" id="planover" min="0" step="any" style="width:70px"> %</span></label>
+        </div>
+        <div class="table-scroll tall" style="margin-top:12px; max-height:360px">
+          <table id="plan">
+            <thead><tr><th>Formula</th><th>Make</th><th class="num">Units</th><th class="num">Material cost</th><th class="num">Total cost</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="tally" id="tally"></div>
+        <div class="table-scroll tall">
+          <table id="req">
+            <thead><tr><th>Raw material / component</th><th class="num">Required</th><th class="num">On hand</th><th class="num">Balance after</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="reqextra"></div>
+      </section>
+    </div>
+
+    <aside class="panel summary" aria-labelledby="h-sum">
+      <span class="step">Costing summary</span>
+      <p class="sum-title" id="h-sum"></p>
+      <div class="small muted" id="sumsub"></div>
+      <dl class="sum" id="sumlist"></dl>
+      <div class="big">
+        <div><div class="k" id="cpulabel">Cost per unit</div><div class="v" id="cpu">–</div></div>
+        <div><div class="k">Selling price per unit</div><div class="v" id="spu">–</div></div>
+      </div>
+      <div class="flags" id="flags"></div>
+      <div class="actions">
+        <button type="button" class="primary" id="copy">Copy this costing for Excel</button>
+      </div>
+      <div id="copymsg" class="small muted" style="margin-top:6px"></div>
+      <textarea id="copyfallback" hidden readonly aria-label="Costing text to copy"></textarea>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+"use strict";
+
+/* ---------- helpers ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const str = (v) => String(v ?? "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+const round = (v, d) => +(+v).toFixed(d);
+const toNum = (v) => typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[, ]/g, "").replace(/[^\d.\-]/g, ""));
+
+/* ---------- units ---------- */
+const UNITS = {
+  mcg: ["mass", 1e-6], ug: ["mass", 1e-6], "µg": ["mass", 1e-6], microgram: ["mass", 1e-6], micrograms: ["mass", 1e-6],
+  mg: ["mass", 1e-3], milligram: ["mass", 1e-3], milligrams: ["mass", 1e-3],
+  g: ["mass", 1], gm: ["mass", 1], gms: ["mass", 1], gram: ["mass", 1], grams: ["mass", 1], grm: ["mass", 1],
+  kg: ["mass", 1000], kgs: ["mass", 1000], kilo: ["mass", 1000], kilogram: ["mass", 1000], kilograms: ["mass", 1000],
+  ml: ["vol", 1], mls: ["vol", 1], cc: ["vol", 1], millilitre: ["vol", 1], milliliter: ["vol", 1], millilitres: ["vol", 1], milliliters: ["vol", 1],
+  l: ["vol", 1000], lt: ["vol", 1000], ltr: ["vol", 1000], ltrs: ["vol", 1000], litre: ["vol", 1000], liter: ["vol", 1000], litres: ["vol", 1000], liters: ["vol", 1000],
+  iu: ["iu", 1], "i.u": ["iu", 1], "i.u.": ["iu", 1],
+  ea: ["count", 1], each: ["count", 1], pc: ["count", 1], pcs: ["count", 1], piece: ["count", 1], pieces: ["count", 1], unit: ["count", 1], units: ["count", 1],
+  qty: ["count", 1], nos: ["count", 1], no: ["count", 1], nr: ["count", 1], cap: ["count", 1], caps: ["count", 1], tab: ["count", 1], tabs: ["count", 1],
+  vial: ["count", 1], vials: ["count", 1], bottle: ["count", 1], btl: ["count", 1], jar: ["count", 1], tube: ["count", 1], box: ["count", 1],
+  pack: ["count", 1], packet: ["count", 1], test: ["count", 1], ampoule: ["count", 1], amp: ["count", 1], pen: ["count", 1], set: ["count", 1], kit: ["count", 1]
+};
+const CANON = { mass: { 1e-6: "mcg", 0.001: "mg", 1: "g", 1000: "kg" }, vol: { 1: "mL", 1000: "L" }, iu: { 1: "IU" }, count: { 1: "ea" } };
+const BASE = { mass: "g", vol: "mL", iu: "IU", count: "ea" };
+function unitInfo(u) {
+  const k = String(u || "").trim().toLowerCase();
+  const e = UNITS[k] || UNITS[k.replace(/\.$/, "")];
+  return e ? { dim: e[0], f: e[1] } : null;
+}
+function canonUnit(u) { if (u === "%" || u === "q.s." || u === "drops") return u; const i = unitInfo(u); return i ? CANON[i.dim][i.f] : String(u || ""); }
+function parseInvUnit(unitStr, packCol) {
+  const m = String(unitStr || "").trim().match(/^([\d.,]+)?\s*([a-zµ.]+)$/i);
+  let pack = 1, info = null;
+  if (m) { info = unitInfo(m[2]); if (m[1]) pack = parseFloat(m[1].replace(",", ".")) || 1; }
+  const pc = toNum(packCol);
+  if (packCol !== undefined && packCol !== "" && pc > 0) pack = pc;
+  return info ? { pack, dim: info.dim, f: info.f } : null;
+}
+/* contents stated in an item name: "Water for Injection 500 ML", "ZINC-5MG/ML-10ML", "hCG 5000 IU" */
+function contentsFromName(name) {
+  const s = String(name || "");
+  const conc = s.match(/(\d+(?:\.\d+)?)\s*(mcg|mg|g|iu)\s*\/\s*ml\b[^\d]*(\d+(?:\.\d+)?)\s*ml\b/i);
+  const out = {};
+  if (conc) { const u = unitInfo(conc[2]); out[u.dim] = +conc[1] * +conc[3] * u.f; out.vol = +conc[3]; return out; }
+  const re = /(\d+(?:[.,]\d+)?)\s*(mcg|mg|kg|g|gm|ml|l|ltr|lt|litre|liter|iu)\b/gi; let m;
+  while ((m = re.exec(s))) { const u = unitInfo(m[2]); if (u && out[u.dim] == null) out[u.dim] = parseFloat(m[1].replace(",", ".")) * u.f; }
+  return out;
+}
+function fmtQty(v, dim) {
+  if (v == null || !isFinite(v)) return "–";
+  const a = Math.abs(v);
+  if (dim === "mass") { if (a >= 1000) return round(v / 1000, 3) + " kg"; if (a < 0.001 && a > 0) return round(v * 1e6, 1) + " mcg"; if (a < 1 && a > 0) return round(v * 1000, 2) + " mg"; return round(v, 3) + " g"; }
+  if (dim === "vol") { if (a >= 1000) return round(v / 1000, 3) + " L"; return round(v, 3) + " mL"; }
+  if (dim === "iu") return round(v, 2) + " IU";
+  return round(v, 3) + " ea";
+}
+
+/* ---------- name matching ---------- */
+const ABBR = {
+  hcl: "hydrochloride", hbr: "hydrobromide", na: "sodium", k: "potassium", ca: "calcium",
+  cyp: "cypionate", prop: "propionate", enan: "enanthate", ac: "acetate",
+  hemihydrate: "hydrate", monohydrate: "hydrate", dihydrate: "hydrate", trihydrate: "hydrate", hexahydrate: "hydrate", heptahydrate: "hydrate",
+  pwd: "powder", pdr: "powder", micro: "micronized", micronised: "micronized", sulfate: "sulphate", sulfur: "sulphur",
+  sol: "solution", soln: "solution", vit: "vitamin", oint: "ointment", crm: "cream", aluminum: "aluminium", alum: "aluminium",
+  swfi: "water for injection", wfi: "water for injection", naoh: "sodium hydroxide", edta: "edetate", mgso4: "magnesium sulphate",
+  pg: "propylene glycol", peg: "polyethylene glycol", dmso: "dimethyl sulfoxide", tmg: "trimethylglycine", nac: "acetylcysteine",
+  gsh: "glutathione", ala: "alpha lipoic acid", coq10: "coenzyme q10", q10: "coenzyme q10", ubiquinone: "coenzyme q10",
+  bottles: "bottle", vials: "vial", seals: "seal", stoppers: "stopper", caps: "cap", pens: "pen", ampoules: "ampoule", amp: "ampoule"
+};
+const NOISE = new Set(["usp", "nf", "bp", "ep", "jp", "ph", "eur", "acs", "ar", "grade", "pharma", "pharmaceutical", "powder", "micronized",
+  "bulk", "api", "pure", "extra", "crystals", "crystal", "fine", "raw", "material", "rm", "the", "of", "and", "for", "w", "with", "hydrate",
+  "sterilized", "sterilised", "sterile", "rubber", "hydrochloride", "dubai", "iran", "oman", "egp", "india", "china", "l", "d", "dl", "separate", "im", "iv", "type", "1"]);
+function tokenize(s) {
+  const raw = String(s || "").toLowerCase().replace(/[µ]/g, "u").replace(/₄/g, "4").replace(/β\s*(?=\d)/g, "beta ").replace(/β/g, " ")
+    .replace(/\btb[\s-]?(500|4)\b/g, "thymosin beta 4").replace(/(\d)\s+(ml|mg|mm|g|l|kg|mcg|iu)\b/g, "$1$2")
+    .replace(/[^a-z0-9.]+/g, " ").replace(/(^|\s)\.|\.(\s|$)/g, " ").trim().split(/\s+/).filter(Boolean);
+  const out = [];
+  raw.forEach(t => { const e = ABBR[t]; if (e) out.push(...e.split(" ")); else out.push(t); });
+  return out;
+}
+function core(tokens) { const c = tokens.filter(t => !NOISE.has(t)); return c.length ? c : tokens; }
+function bigrams(s) { const b = new Map(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); b.set(g, (b.get(g) || 0) + 1); } return b; }
+function dice(a, b) {
+  if (!a || !b) return 0; if (a === b) return 1; if (a.length < 2 || b.length < 2) return 0;
+  const A = bigrams(a), B = bigrams(b); let inter = 0;
+  A.forEach((n, g) => { if (B.has(g)) inter += Math.min(n, B.get(g)); });
+  return 2 * inter / (a.length - 1 + b.length - 1);
+}
+function tokSim(a, b) {
+  if (a === b) return 1;
+  if (/\d/.test(a) || /\d/.test(b)) return 0;
+  if (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a))) return 0.88;
+  const d = dice(a, b); return d >= 0.75 ? d * 0.85 : 0;
+}
+function prep(name) { const t = tokenize(name); const c = core(t); return { c, j: c.join("") }; }
+function nameVariants(name) {
+  const s = String(name || "");
+  const v = [{ w: 1, ...prep(s) }];
+  const noParen = s.replace(/\([^)]*\)/g, " ");
+  if (noParen.trim() && noParen !== s) v.push({ w: 1, ...prep(noParen) });
+  (s.match(/\(([^)]+)\)/g) || []).forEach(p => { const inner = p.slice(1, -1); if (/[a-z]{2}/i.test(inner)) v.push({ w: noParen.trim() ? 0.8 : 0.95, ...prep(inner) }); });
+  const beforeDash = s.split(/\s[—–-]\s|\s\/\s/)[0];
+  if (beforeDash !== s) v.push({ w: 0.95, ...prep(beforeDash) });
+  return v;
+}
+function score(q, it) {
+  let rec = 0; const used = new Set();
+  q.c.forEach(t => {
+    let best = 0, bi = -1;
+    it._c.forEach((u, i) => { const s = tokSim(t, u); if (s > best) { best = s; bi = i; } });
+    rec += best; if (bi >= 0 && best > 0) used.add(bi);
+  });
+  rec /= q.c.length || 1;
+  const prec = used.size / (it._c.length || 1);
+  return 0.62 * rec + 0.18 * prec + 0.2 * dice(q.j, it._j);
+}
+const normKey = (s) => tokenize(s).join(" ");
+
+/* ---------- inventory ---------- */
+let inv = { items: [], source: "", sample: false, rows: [], headers: [], map: {}, hi: 0, catsOff: {} };
+function findHeaderRow(rows) {
+  let best = -1, bestScore = 0;
+  rows.slice(0, 40).forEach((r, i) => {
+    const t = r.map(c => String(c ?? "").toLowerCase());
+    let s = 0;
+    if (t.some(x => /desc|item name|material|product|name/.test(x))) s += 2;
+    if (t.some(x => /cost|price|rate/.test(x))) s += 2;
+    if (t.some(x => /uom|unit/.test(x))) s += 1;
+    if (t.some(x => /code|sku/.test(x))) s += 1;
+    if (s > bestScore) { bestScore = s; best = i; }
+  });
+  return bestScore >= 3 ? best : rows.findIndex(r => r.filter(c => typeof c === "string" && c.trim()).length >= 2);
+}
+function guessMap(headers) {
+  const h = headers.map(x => String(x || "").toLowerCase());
+  const find = (res, not) => { for (const re of res) { const i = h.findIndex(x => re.test(x) && !(not && not.test(x))); if (i >= 0) return i; } return -1; };
+  return {
+    code: find([/item ?code|code|sku/, /item ?(no|#|id)/]),
+    name: find([/desc/, /item ?name|material|product|name/, /item/], /code|price|cost|uom/),
+    unit: find([/uom/, /unit of measure|^unit$|measure/], /price|cost|rate/),
+    price: find([/avg ?cost|average cost|unit cost|cost price/, /cost/, /price|rate/], /total|value|retail|sales/),
+    onhand: find([/on ?hand|stock|balance|qty|quantity/], /price|cost|value/),
+    pack: find([/pack ?size|qty ?per|conversion/], /price|cost/)
+  };
+}
+function buildItems() {
+  const m = inv.map, items = [];
+  let group = "", cat = "";
+  inv.rows.forEach((r, i) => {
+    const first = str(r[0]);
+    const sec = first.match(/^(main |sub sub |sub )?category\s*:\s*-?\s*(.+)$/i);
+    if (sec) { const lvl = (sec[1] || "").toLowerCase().trim(); if (lvl === "sub sub") cat = sec[2].trim(); else { if (lvl === "sub") group = sec[2].trim(); cat = ""; } return; }
+    const name = m.name >= 0 ? str(r[m.name]) : "";
+    if (!name || /^(sub ?total|grand total|total)$/i.test(first) || /^(sub ?total|grand total|total)$/i.test(name)) return;
+    const price = m.price >= 0 ? toNum(r[m.price]) : NaN;
+    const unitStr = m.unit >= 0 ? str(r[m.unit]) : "";
+    const it = {
+      id: "i" + i, code: m.code >= 0 ? str(r[m.code]) : "", name, price, unitStr,
+      onHand: m.onhand >= 0 ? toNum(r[m.onhand]) : NaN,
+      cat: cat || group || "Uncategorised",
+      u: parseInvUnit(unitStr, m.pack >= 0 ? r[m.pack] : undefined),
+      contents: contentsFromName(name)
+    };
+    const p = prep(name); it._c = p.c; it._j = p.j;
+    items.push(it);
+  });
+  inv.items = items;
+  inv.byId = new Map(items.map(it => [it.id, it]));
+  inv.byKey = new Map(items.map(it => [(it.code || it.name).toLowerCase(), it]));
+  inv.cats = [...new Set(items.map(it => it.cat))];
+  renderDatalist();
+}
+function defaultCatOff(c) { return /laborator|consumable|so check/i.test(c); }
+function setInventory(rows, source, sample, map) {
+  rows = rows.filter(r => r && r.some(c => String(c ?? "").trim() !== ""));
+  const hi = Math.max(0, findHeaderRow(rows));
+  inv.headers = rows[hi].map(c => str(c));
+  inv.rows = rows.slice(hi + 1);
+  inv.source = source; inv.sample = !!sample;
+  inv.map = map || guessMap(inv.headers);
+  const ccy = inv.headers.join(" ").match(/\(([A-Z]{3})\)/);
+  if (ccy && !store.get("fc.pricing", null)) { pricing.ccy = ccy[1]; $("ccy").value = ccy[1]; }
+  buildItems();
+  const savedOff = store.get("fc.catsOff", null);
+  inv.catsOff = {};
+  inv.cats.forEach(c => inv.catsOff[c] = savedOff && c in savedOff ? savedOff[c] : defaultCatOff(c));
+  renderMap(); renderCats(); renderInvStatus();
+  if (!sample) store.set("fc.inv", { rows, source, map: inv.map }); else store.del("fc.inv");
+  book.forEach(f => f.lines.forEach(l => { if (!l.manual) autoMatch(l); else relinkManual(l); }));
+  refreshAll();
+}
+function renderInvStatus() {
+  const el = $("invstatus");
+  const usable = inv.items.filter(it => it.price > 0).length;
+  const neg = inv.items.filter(it => it.price < 0).length;
+  el.className = "status" + (inv.sample ? " sample" : "");
+  el.innerHTML = inv.items.length
+    ? `<strong>${inv.items.length.toLocaleString()} items</strong> from ${esc(inv.source)}${inv.sample ? " (example data, not your prices)" : ""}. `
+      + `${usable.toLocaleString()} have a cost. ${inv.items.length - usable - neg} have zero cost${neg ? `, ${neg} have a negative average cost` : ""}; they are still matched but flagged.`
+    : "No inventory loaded yet. Upload the Item Valuation Summary export (Excel or CSV).";
+}
+function renderCats() {
+  $("catwrap").hidden = !inv.cats || inv.cats.length < 2;
+  if (!inv.cats) return;
+  const counts = {}; inv.items.forEach(it => counts[it.cat] = (counts[it.cat] || 0) + 1);
+  $("cats").innerHTML = inv.cats.map((c, i) => `<label class="${inv.catsOff[c] ? "" : "on"}"><input type="checkbox" id="cat${i}" ${inv.catsOff[c] ? "" : "checked"}> ${esc(c)} <span class="muted">${counts[c]}</span></label>`).join("");
+  inv.cats.forEach((c, i) => $("cat" + i).addEventListener("change", e => {
+    inv.catsOff[c] = !e.target.checked; store.set("fc.catsOff", inv.catsOff);
+    e.target.parentElement.classList.toggle("on", e.target.checked);
+    book.forEach(f => f.lines.forEach(l => { if (!l.manual) autoMatch(l); }));
+    refreshAll();
+  }));
+}
+function renderMap() {
+  const opts = (sel) => `<option value="-1">(none)</option>` + inv.headers.map((h, i) => `<option value="${i}" ${i === sel ? "selected" : ""}>${esc(h || "Column " + (i + 1))}</option>`).join("");
+  const fields = [["name", "Item description"], ["code", "Item code"], ["unit", "UOM"], ["price", "Cost per UOM"], ["onhand", "On hand (optional)"], ["pack", "Pack size (optional)"]];
+  $("mapgrid").innerHTML = fields.map(([k, l]) => `<label class="f">${l}<select id="map-${k}">${opts(inv.map[k])}</select></label>`).join("");
+  fields.forEach(([k]) => $("map-" + k).addEventListener("change", e => {
+    inv.map[k] = +e.target.value; buildItems(); renderCats(); renderInvStatus();
+    if (!inv.sample) store.set("fc.inv", { rows: [inv.headers, ...inv.rows], source: inv.source, map: inv.map });
+    book.forEach(f => f.lines.forEach(l => { if (!l.manual) autoMatch(l); else relinkManual(l); })); refreshAll();
+  }));
+}
+function renderDatalist() {
+  let dl = $("invlist");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "invlist"; document.body.appendChild(dl); }
+  dl.innerHTML = inv.items.map(it => `<option value="${esc(itemLabel(it))}"></option>`).join("");
+}
+const itemLabel = (it) => (it.code ? it.code + " · " : "") + it.name;
+
+/* ---------- matching ---------- */
+function rankMatches(name, dim) {
+  const q = str(name); if (!q || !inv.items.length) return [];
+  const byCode = inv.items.find(it => it.code && it.code.toLowerCase() === q.toLowerCase());
+  if (byCode) return [{ item: byCode, s: 1 }];
+  const vars = nameVariants(q);
+  const res = [];
+  inv.items.forEach(it => {
+    if (inv.catsOff[it.cat]) return;
+    let s = 0; vars.forEach(v => { s = Math.max(s, v.w * score(v, it)); });
+    if (s < 0.3) return;
+    if (!(it.price > 0)) s *= it.price < 0 ? 0.6 : 0.7;     // strongly prefer items that carry a real cost
+    if (dim && it.u && it.u.dim !== dim && it.contents[dim] == null) s *= 0.85; // prefer items in a compatible unit
+    if (it.onHand > 0) s += 0.01;
+    res.push({ item: it, s: Math.min(1, s) });
+  });
+  res.sort((a, b) => b.s - a.s);
+  return res.slice(0, 6);
+}
+function lineDim(l, f) {
+  if (l.unit === "%" || l.unit === "q.s.") return f && unitInfo(f.unit) ? unitInfo(f.unit).dim : null;
+  const u = unitInfo(l.unit); return u ? u.dim : null;
+}
+function autoMatch(l) {
+  const f = l._f;
+  const dim = lineDim(l, f);
+  l.cands = rankMatches(l.name, dim);
+  const lk = learned[normKey(l.name)];
+  if (lk && inv.byKey.get(lk) && !inv.catsOff[inv.byKey.get(lk).cat]) { l.matchId = inv.byKey.get(lk).id; l.learned = true; l.conf = 1; return; }
+  l.learned = false;
+  l.matchId = l.cands[0] && l.cands[0].s >= 0.6 ? l.cands[0].item.id : null;
+  l.conf = l.cands[0] ? l.cands[0].s : 0;
+}
+function relinkManual(l) {
+  const it = l.matchKey && inv.byKey.get(l.matchKey);
+  if (it) l.matchId = it.id; else { l.manual = false; autoMatch(l); }
+}
+
+/* ---------- formula extraction (Excel sheets, Word tables, pasted text) ---------- */
+const cellsOf = (r) => (r || []).map(str).filter(Boolean);
+function headerCols(r) {
+  const t = (r || []).map(c => str(c).toLowerCase());
+  const name = t.findIndex(x => /raw material|material|ingredient|component|chemical|drug|item|description|substance/.test(x) && !/cost|price|qty|quantity/.test(x));
+  if (name < 0) return null;
+  const qtys = t.map((x, i) => (/qty|quantity|amount|weight|\bwt\b|dose|strength/.test(x) && !/cost|price|conc/.test(x) && i !== name) ? i : -1).filter(i => i >= 0);
+  if (!qtys.length) return null;
+  const qty = qtys.find(i => !/batch/.test(t[i])) ?? qtys[0];
+  const unit = t.findIndex((x, i) => i !== qty && /^(unit|units|uom|unit of measure|measure)$/.test(x));
+  const role = t.findIndex((x, i) => i !== name && /^(role|function|type|category)$/.test(x));
+  const per = (t[qty].match(/\/\s*([a-z]+)|per\s+([a-z]+)/) || []).slice(1).find(Boolean) || "";
+  return { name, qty, unit, role, per };
+}
+const TITLE_CODE = /^[A-Z]{1,6}[\s\-]?\d{1,4}\b/i;
+function sizeFrom(texts) {
+  for (const t of texts) {
+    const m = t.match(/fill\s*:?\s*([\d.,]+)\s*(ml|l|g|kg)\b/i) || t.match(/\(\s*([\d][\d.,\s]*)\s*(ml|l|g|kg)\b/i);
+    if (m) return { size: parseFloat(m[1].replace(/[\s,]/g, "")), unit: canonUnit(m[2]) };
+  }
+  return null;
+}
+function parseQtyCell(v, unitCell) {
+  if (typeof v === "number") return { qty: v, unit: canonUnit(unitCell) || "" };
+  const s = str(v).toLowerCase();
+  if (!s) return null;
+  let m = s.match(/^q\.?\s*s\.?\s*(?:ad\s*)?([\d\s.,]+)?\s*([a-zµ%.]+)?$/);
+  if (m) return { qs: true, qsTo: m[1] ? parseFloat(m[1].replace(/[\s,]/g, "")) : null, unit: m[2] || unitCell };
+  m = s.match(/^([\d][\d\s.,]*)\s*(%|[a-zµ.]+)?/);
+  if (m) return { qty: parseFloat(m[1].replace(/\s/g, "").replace(/,(?=\d{3}\b)/g, "").replace(",", ".")), unit: m[2] || unitCell || "" };
+  return null;
+}
+function makeLine(name, role, pq, unitCell) {
+  let unit = pq ? (pq.qs ? "q.s." : canonUnit(pq.unit || unitCell || "")) : canonUnit(unitCell || "");
+  const rawUnit = str(unitCell || (pq && pq.unit) || "").toLowerCase();
+  const l = { name: str(name), role: str(role), qty: pq && !pq.qs ? pq.qty : "", unit: unit || "g",
+    matchId: null, manual: false, learned: false, conv: "", excluded: false, qsTo: pq && pq.qsTo || null };
+  if (/drop/.test(rawUnit)) { l.unit = "drops"; l.excluded = true; l.exclNote = "pH adjustment in drops, not costed"; }
+  if (pq && pq.qs && pq.qsTo) l.qsUnit = canonUnit(pq.unit || unitCell);
+  return l;
+}
+function extractFormulas(rows, source) {
+  const out = []; let lastEnd = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const h = headerCols(rows[i]); if (!h) continue;
+    const pre = rows.slice(lastEnd, i).map(cellsOf).filter(c => c.length === 1).map(c => c[0]);
+    let title = pre.find(t => TITLE_CODE.test(t) && t.length < 140)
+      || pre.filter(t => t.length < 100 && !/^(container|buffer|note|fill|vehicle|prepared|reviewed|financial|section)/i.test(t)).pop()
+      || `${source} formula ${out.length + 1}`;
+    const lines = []; let j = i + 1;
+    for (; j < rows.length; j++) {
+      const r = rows[j], cells = cellsOf(r);
+      if (!cells.length) { if (lines.length) break; else continue; }
+      if (headerCols(r)) break;
+      const name = str(r[h.name]);
+      if (!name || cells.length === 1) break;
+      if (/^(cost|total|sub ?total|grand total|×|x\s)/i.test(name) || /cost per|per batch/i.test(name)) break;
+      const unitCell = h.unit >= 0 ? str(r[h.unit]) : "";
+      const pq = parseQtyCell(r[h.qty], unitCell);
+      if (!pq) continue;
+      lines.push(makeLine(name, h.role >= 0 ? r[h.role] : "", pq, unitCell));
+    }
+    lastEnd = j; i = j - 1;
+    if (!lines.length || /illustrative|example only/i.test(title)) continue;
+    const sz = sizeFrom([...pre, title]);
+    out.push({ title, source, info: pre.filter(t => t !== title).slice(-3).join("  ·  "), per: h.per, size: sz ? sz.size : "", unit: sz ? sz.unit : "mL", n: 1, lines });
+  }
+  return out;
+}
+function parseFormulaText(text) {
+  const lines = [];
+  text.split(/\r?\n/).forEach(raw => {
+    const ln = raw.trim(); if (!ln) return;
+    const cells = ln.split(/\t|;|,(?=\s*[\d.]|\s*q)/).map(s => s.trim()).filter(Boolean);
+    let name, qtyStr, unit = "";
+    if (cells.length >= 2) { name = cells[0]; qtyStr = cells[1]; unit = cells[2] || ""; }
+    else {
+      const m = ln.match(/^(.*?)[\s:\-–]+((?:[\d.,]+\s*(?:%|[a-zµ]+\.?)?)|q\.?\s*s\.?(?:\s*ad)?\.?)$/i);
+      if (m) { name = m[1]; qtyStr = m[2]; } else { name = ln; qtyStr = ""; }
+    }
+    lines.push(makeLine(name.replace(/[\s:\-–]+$/, ""), "", parseQtyCell(qtyStr, unit), unit));
+  });
+  return lines;
+}
+function docxToRows(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rows = [];
+  const walk = (el) => {
+    [...el.children].forEach(c => {
+      const tag = c.tagName.toLowerCase();
+      if (tag === "table") { c.querySelectorAll("tr").forEach(tr => rows.push([...tr.children].map(td => td.textContent))); rows.push([]); }
+      else if (/^(p|h\d|li)$/.test(tag)) { const t = c.textContent.trim(); if (t) rows.push([t]); }
+      else walk(c);
+    });
+  };
+  walk(doc.body);
+  return rows;
+}
+
+/* ---------- formula book ---------- */
+let book = [];
+let cur = 0;
+const learned = store.get("fc.learned", {});
+function addFormulas(list, replace) {
+  if (replace) book = [];
+  list.forEach(f => {
+    f.id = "f" + Math.random().toString(36).slice(2, 9);
+    if (!f.size) { const qs = f.lines.find(l => l.qsTo); if (qs) { f.size = qs.qsTo; f.unit = qs.qsUnit || f.unit; } }
+    f.lines.forEach(l => { l._f = f; autoMatch(l); });
+    book.push(f);
+  });
+}
+function saveBook() {
+  const slim = book.map(f => ({ ...f, lines: f.lines.map(l => ({ name: l.name, role: l.role, qty: l.qty, unit: l.unit, conv: l.conv, excluded: l.excluded, exclNote: l.exclNote, qsTo: l.qsTo, manual: l.manual, matchKey: l.matchKey })) }));
+  store.set("fc.book", { book: slim, cur });
+}
+function loadBook(saved) {
+  book = saved.book.map(f => { f.lines.forEach(l => { l._f = f; if (l.manual) relinkManual(l); else autoMatch(l); }); return f; });
+  cur = Math.min(saved.cur || 0, book.length - 1);
+}
+
+/* ---------- calculation ---------- */
+function calc(f) {
+  const bu = unitInfo(f.unit), bv = parseFloat(f.size);
+  const bb = bu && bv > 0 ? { dim: bu.dim, v: bv * bu.f } : null;
+  f.lines.forEach(l => {
+    l.err = ""; l.base = null; l.dim = null; l.cost = null; l.invQty = null; l.needConv = false; l.convAuto = false;
+    if (l.excluded) return;
+    if (l.unit === "q.s.") return;
+    const q = parseFloat(l.qty);
+    if (!(q >= 0)) { l.err = "Enter a quantity."; return; }
+    if (l.unit === "%") { if (!bb) { l.err = "Enter a fill / batch size for % lines."; return; } l.dim = bb.dim; l.base = q / 100 * bb.v; return; }
+    const u = unitInfo(l.unit);
+    if (!u) { l.err = `Unit “${l.unit}” not recognised.`; return; }
+    l.dim = u.dim; l.base = q * u.f;
+  });
+  const qsLines = f.lines.filter(l => l.unit === "q.s." && !l.excluded);
+  if (qsLines.length) {
+    if (!bb) qsLines.forEach(l => l.err = "Enter a fill / batch size to work out q.s.");
+    else {
+      let used = 0;
+      f.lines.forEach(l => { if (l.base != null && l.dim === bb.dim) used += l.base; });
+      const left = Math.max(0, bb.v - used) / qsLines.length;
+      qsLines.forEach(l => { l.dim = bb.dim; l.base = left; if (bb.v - used < 0) l.err = "Other ingredients exceed the batch size."; });
+    }
+  }
+  let materials = 0;
+  f.lines.forEach(l => {
+    const it = l.matchId ? inv.byId.get(l.matchId) : null;
+    if (!it || l.base == null || l.excluded) return;
+    if (!it.u) { l.err = l.err || `Item UOM “${it.unitStr}” not readable.`; return; }
+    if (!isFinite(it.price)) { l.err = l.err || "Item has no cost in the inventory file."; return; }
+    let invUnits;
+    if (l.dim === it.u.dim) invUnits = l.base / (it.u.f * it.u.pack);
+    else {
+      l.needConv = true;
+      const fu = unitInfo(l.unit === "%" || l.unit === "q.s." ? f.unit : l.unit);
+      let per = parseFloat(l.conv) * (fu ? fu.f : 1);          // formula base units in one inventory UOM
+      if (!(per > 0) && it.contents[l.dim] != null) { per = it.contents[l.dim]; l.convAuto = true; }
+      if (!(per > 0)) { l.err = `Enter how much one ${it.unitStr || "inventory unit"} contains.`; return; }
+      invUnits = l.base / (per * it.u.pack);
+    }
+    l.invUnits = invUnits; l.invUom = invUnits * it.u.pack;
+    l.cost = invUnits * it.price;
+    materials += l.cost;
+  });
+  return materials;
+}
+const DEFAULT_PROVS = [
+  { name: "Overage / process loss", basis: "pctMat", v: 5 },
+  { name: "Compounding labour", basis: "batch", v: 0 },
+  { name: "QC / sterility testing", basis: "batch", v: 0 },
+  { name: "Overheads", basis: "pctRun", v: 10 }
+];
+const BASIS = { pctMat: "% of material cost", pctRun: "% of running total", batch: "Fixed per batch", unit: "Fixed per unit" };
+let provs = store.get("fc.provs", null) || DEFAULT_PROVS.map(p => ({ ...p }));
+const pricing = store.get("fc.pricing", null) || { method: "markup", pct: 35, ccy: "OMR" };
+function totals(f) {
+  const M = calc(f);
+  const n = Math.max(1, parseInt(f.n, 10) || 1);
+  let run = M; const rows = [];
+  provs.forEach(p => {
+    const v = parseFloat(p.v) || 0; let amt = 0;
+    if (p.basis === "pctMat") amt = M * v / 100;
+    else if (p.basis === "pctRun") amt = run * v / 100;
+    else if (p.basis === "batch") amt = v;
+    else if (p.basis === "unit") amt = v * n;
+    run += amt; rows.push({ name: p.name || "Provision", amt, p });
+  });
+  const cpu = run / n, pct = parseFloat(pricing.pct) || 0;
+  const spu = pricing.method === "margin" ? (pct < 100 ? cpu / (1 - pct / 100) : NaN) : cpu * (1 + pct / 100);
+  const active = f.lines.filter(l => !l.excluded);
+  return { n, M, rows, total: run, cpu, spu,
+    matched: active.filter(l => l.matchId).length, count: active.length,
+    unmatched: active.filter(l => !l.matchId).length,
+    check: active.filter(l => l.matchId && !l.manual && !l.learned && l.conf < 0.75).length,
+    errs: active.filter(l => l.matchId && l.err).length,
+    zero: active.filter(l => { const it = l.matchId && inv.byId.get(l.matchId); return it && !(it.price > 0); }).length };
+}
+
+/* ---------- rendering ---------- */
+const dp = () => /^(OMR|KWD|BHD|JOD|TND|LYD|IQD)$/i.test(pricing.ccy || "") ? 3 : 2;
+const money = (v, d) => isFinite(v) ? v.toLocaleString(undefined, { minimumFractionDigits: d ?? dp(), maximumFractionDigits: d ?? dp() }) : "–";
+function renderBook() {
+  const q = $("bookq").value.trim().toLowerCase();
+  const tb = $("book").querySelector("tbody");
+  if (!book.length) { tb.innerHTML = `<tr><td colspan="4" class="empty">No formulas yet. Upload a master formula record or paste a formula.</td></tr>`; return; }
+  tb.innerHTML = book.map((f, i) => {
+    if (q && !(f.title + " " + f.source).toLowerCase().includes(q)) return "";
+    const t = totals(f);
+    const state = t.unmatched || t.errs ? "bad" : t.check || t.zero ? "warn" : "ok";
+    return `<tr data-i="${i}" class="${i === cur ? "sel" : ""}" tabindex="0">
+      <td><div class="fname">${esc(f.title)}</div><div class="src">${esc(f.source)}${f.per ? " · per " + esc(f.per) : ""}</div></td>
+      <td class="num"><span class="chip ${state}">${t.matched}/${t.count}</span></td>
+      <td class="num">${money(t.cpu)}</td><td class="num">${money(t.spu)}</td></tr>`;
+  }).join("");
+  tb.querySelectorAll("tr[data-i]").forEach(tr => {
+    const pick = () => { cur = +tr.dataset.i; saveBook(); refreshAll(); document.getElementById("h-lines").scrollIntoView({ block: "start", behavior: "smooth" }); };
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
+  });
+}
+function renderFormulaHead() {
+  const f = book[cur];
+  ["fname", "bsize", "bunit", "nunits"].forEach(id => $(id).disabled = !f);
+  if (!f) { $("fname").value = ""; return; }
+  $("fname").value = f.title; $("bsize").value = f.size; $("bunit").value = f.unit || "mL"; $("nunits").value = f.n;
+  $("unitword").textContent = f.per ? f.per + "(s)" : "unit(s)";
+}
+function renderLines() {
+  const f = book[cur], tb = $("lines").querySelector("tbody");
+  if (!f) { tb.innerHTML = `<tr><td colspan="6" class="empty">Select a formula from the list above.</td></tr>`; return; }
+  const unitOpts = ["mcg", "mg", "g", "kg", "mL", "L", "IU", "ea", "%", "q.s.", "drops"];
+  tb.innerHTML = f.lines.map((l, i) => {
+    const it = l.matchId ? inv.byId.get(l.matchId) : null;
+    let chip;
+    if (l.excluded) chip = `<span class="chip off">Not costed</span>`;
+    else if (!it) chip = `<span class="chip bad">No match</span>`;
+    else if (l.manual || l.learned) chip = `<span class="chip learned">Your choice</span>`;
+    else if (l.conf >= 0.75) chip = `<span class="chip ok">Matched ${Math.round(l.conf * 100)}%</span>`;
+    else chip = `<span class="chip warn">Check ${Math.round(l.conf * 100)}%</span>`;
+    const showAlts = !l.excluded && !l.manual && !l.learned && (l.conf < 0.75 || !it);
+    const alts = showAlts ? (l.cands || []).filter(c => c.item.id !== l.matchId).slice(0, 3)
+      .map(c => `<button type="button" data-pick="${i}" data-id="${c.item.id}" title="${esc(c.item.code)} · ${Math.round(c.s * 100)}% similar">${esc(c.item.name)} <span class="muted">${esc(money(c.item.price))}/${esc(c.item.unitStr)}</span></button>`).join("") : "";
+    const units = unitOpts.includes(l.unit) ? unitOpts : [l.unit, ...unitOpts];
+    const fu = l.unit === "%" || l.unit === "q.s." ? f.unit : l.unit;
+    const conv = it && l.needConv
+      ? `<div class="conv">1 ${esc(it.unitStr || "unit")} contains <input type="number" id="lc${i}" step="any" min="0" value="${esc(l.conv)}" placeholder="${l.convAuto ? esc(round(it.contents[l.dim] / (unitInfo(fu)?.f || 1), 4)) : "?"}" aria-label="Conversion"> ${esc(fu)}${l.convAuto && !l.conv ? ` <span class="note warn" style="margin:0">read from item name, check it</span>` : ""}</div>` : "";
+    const stock = it && isFinite(it.onHand) ? ` · on hand ${round(it.onHand, 3)} ${esc(it.unitStr)}` : "";
+    const priceNote = it && !(it.price > 0) ? `<div class="note bad">${it.price < 0 ? "Negative" : "Zero"} average cost in inventory. Pick another item or update the cost.</div>` : "";
+    return `<tr class="${l.excluded ? "excluded" : ""}">
+      <td class="w-name"><input type="text" id="ln${i}" value="${esc(l.name)}" aria-label="Ingredient name">${l.role ? `<div class="role">${esc(l.role)}</div>` : ""}
+        <label class="excl"><input type="checkbox" id="lx${i}" ${l.excluded ? "" : "checked"}> Include in cost</label>${l.excluded && l.exclNote ? `<div class="note">${esc(l.exclNote)}</div>` : ""}</td>
+      <td class="w-qty"><input type="number" id="lq${i}" step="any" min="0" value="${l.unit === "q.s." ? "" : esc(l.qty)}" ${l.unit === "q.s." ? "disabled placeholder=\"auto\"" : ""} aria-label="Quantity" class="num"></td>
+      <td class="w-unit"><select id="lu${i}" aria-label="Unit">${units.map(u => `<option ${u === l.unit ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></td>
+      <td class="w-match">
+        <input type="text" id="lm${i}" list="invlist" value="${it ? esc(itemLabel(it)) : ""}" placeholder="Search inventory…" aria-label="Inventory item">
+        <div style="margin-top:4px">${chip}</div>
+        ${it ? `<div class="iteminfo">${esc(money(it.price))} per ${esc(it.unitStr || "?")}${stock} · ${esc(it.cat)}</div>` : ""}
+        ${priceNote}
+        ${alts ? `<div class="alts"><span class="note" style="margin:0">Other candidates:</span>${alts}</div>` : ""}
+        ${conv}
+        ${l.err && !l.excluded ? `<div class="note bad">${esc(l.err)}</div>` : ""}
+      </td>
+      <td class="num">${l.base != null ? fmtQty(l.base, l.dim) : "–"}${it && l.invUnits != null && l.needConv ? `<div class="note">= ${round(l.invUnits, 4)} ${esc(it.unitStr)}</div>` : ""}</td>
+      <td class="num">${l.cost != null ? money(l.cost, Math.abs(l.cost) < 0.01 ? 5 : dp() + 1) : "–"}</td>
+    </tr>`;
+  }).join("");
+  f.lines.forEach((l, i) => {
+    $("ln" + i).addEventListener("change", e => { l.name = e.target.value; l.manual = false; autoMatch(l); changed(); });
+    $("lq" + i).addEventListener("change", e => { l.qty = e.target.value; changed(); });
+    $("lu" + i).addEventListener("change", e => { l.unit = e.target.value; if (!l.manual && !l.learned) autoMatch(l); changed(); });
+    $("lx" + i).addEventListener("change", e => { l.excluded = !e.target.checked; changed(); });
+    $("lm" + i).addEventListener("change", e => {
+      const v = e.target.value.trim(); e.target.setCustomValidity("");
+      if (!v) { l.matchId = null; l.manual = true; l.matchKey = null; changed(); return; }
+      const it = inv.items.find(x => itemLabel(x) === v) || inv.byKey.get(v.toLowerCase());
+      if (it) choose(l, it); else { e.target.setCustomValidity("Pick an item from the list"); e.target.reportValidity(); }
+    });
+    const c = $("lc" + i); if (c) c.addEventListener("change", e => { l.conv = e.target.value; changed(); });
+  });
+  tb.querySelectorAll("[data-pick]").forEach(b => b.addEventListener("click", () => choose(f.lines[+b.dataset.pick], inv.byId.get(b.dataset.id))));
+}
+function choose(l, it) {
+  l.matchId = it.id; l.manual = true; l.matchKey = (it.code || it.name).toLowerCase(); l.conv = "";
+  learned[normKey(l.name)] = l.matchKey;
+  store.set("fc.learned", learned);
+  // apply the same choice to that ingredient in every other formula
+  book.forEach(f => f.lines.forEach(o => { if (o !== l && !o.manual && normKey(o.name) === normKey(l.name)) autoMatch(o); }));
+  changed();
+}
+function renderSummary() {
+  const f = book[cur];
+  if (!f) { $("h-sum").textContent = "No formula selected"; $("sumsub").textContent = ""; $("sumlist").innerHTML = ""; $("cpu").textContent = "–"; $("spu").textContent = "–"; $("flags").innerHTML = ""; return; }
+  const t = totals(f), c = esc(pricing.ccy || "");
+  $("h-sum").textContent = f.title;
+  const per = f.per || "unit";
+  $("sumsub").textContent = `${f.source}${f.size ? ` · ${f.size} ${f.unit} fill` : ""} · quantities for ${t.n} ${per}${t.n === 1 ? "" : "s"}`;
+  $("cpulabel").textContent = `Cost per ${per}`;
+  const fmtBasis = (p) => p.basis === "pctMat" || p.basis === "pctRun" ? ` (${p.v}%)` : p.basis === "unit" ? ` (${p.v} × ${t.n})` : "";
+  $("sumlist").innerHTML =
+    `<dt>Materials &amp; components</dt><dd class="num">${money(t.M)}</dd>` +
+    t.rows.map(r => `<dt>${esc(r.name)}${esc(fmtBasis(r.p))}</dt><dd class="num">${money(r.amt)}</dd>`).join("") +
+    `<div class="rule"></div><dt class="strong">Total cost</dt><dd class="num strong">${c} ${money(t.total)}</dd>` +
+    `<dt>${pricing.method === "margin" ? "Gross margin" : "Markup"} ${esc(pricing.pct)}%</dt><dd class="num">${c} ${money((t.spu - t.cpu) * t.n)}</dd>`;
+  $("cpu").textContent = `${pricing.ccy || ""} ${money(t.cpu)}`.trim();
+  $("spu").textContent = `${pricing.ccy || ""} ${money(t.spu)}`.trim();
+  const pl = (n, a, b) => n > 1 ? b : a;
+  $("flags").innerHTML =
+    (t.unmatched ? `<div class="bad">${t.unmatched} ${pl(t.unmatched, "ingredient has", "ingredients have")} no inventory item and ${pl(t.unmatched, "is", "are")} costed at zero.</div>` : "") +
+    (t.errs ? `<div class="bad">${t.errs} ${pl(t.errs, "line", "lines")} can't be costed yet. See the notes in step 3.</div>` : "") +
+    (t.zero ? `<div class="warn">${t.zero} matched ${pl(t.zero, "item has", "items have")} zero or negative cost in inventory.</div>` : "") +
+    (t.check ? `<div class="warn">${t.check} ${pl(t.check, "match", "matches")} to check before you use this price.</div>` : "");
+}
+function renderLearned() {
+  const n = Object.keys(learned).length;
+  $("learnedinfo").innerHTML = n ? `${n} remembered ${n > 1 ? "matches" : "match"} <button type="button" class="link" id="forget">Forget all</button>` : "";
+  const fb = $("forget"); if (fb) fb.addEventListener("click", () => {
+    Object.keys(learned).forEach(k => delete learned[k]); store.set("fc.learned", learned);
+    book.forEach(f => f.lines.forEach(l => { l.manual = false; l.matchKey = null; autoMatch(l); })); changed();
+  });
+}
+function refreshAll() { renderFormulaHead(); renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); }
+let saveT;
+function changed() { renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); clearTimeout(saveT); saveT = setTimeout(saveBook, 400); }
+
+/* ---------- provisions ---------- */
+function renderProvs() {
+  $("provs").innerHTML = provs.map((p, i) => `
+    <div class="prow">
+      <input type="text" id="pn${i}" value="${esc(p.name)}" aria-label="Provision name">
+      <select id="pb${i}" class="pb" aria-label="Basis">${Object.entries(BASIS).map(([k, l]) => `<option value="${k}" ${k === p.basis ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <input type="number" id="pv${i}" step="any" value="${esc(p.v)}" aria-label="Value for ${esc(p.name)}" class="num">
+      <button type="button" class="x" data-del="${i}" aria-label="Remove ${esc(p.name)}">✕</button>
+    </div>`).join("");
+  provs.forEach((p, i) => {
+    $("pn" + i).addEventListener("input", e => { p.name = e.target.value; saveProvs(); renderSummary(); });
+    $("pb" + i).addEventListener("change", e => { p.basis = e.target.value; saveProvs(); renderSummary(); renderBook(); });
+    $("pv" + i).addEventListener("input", e => { p.v = e.target.value; saveProvs(); renderSummary(); renderBook(); });
+  });
+  $("provs").querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { provs.splice(+b.dataset.del, 1); saveProvs(); renderProvs(); renderSummary(); renderBook(); }));
+}
+function saveProvs() { store.set("fc.provs", provs); }
+
+/* ---------- production plan & stock check ---------- */
+let plan = store.get("fc.plan", []);              // [{ fid, qty, mode: "units" | "fill" }]
+let planOver = store.get("fc.planOver", 5);
+const savePlan = () => { store.set("fc.plan", plan); store.set("fc.planOver", planOver); };
+const fById = (id) => book.find(f => f.id === id);
+function planUnits(p, f) {
+  const q = parseFloat(p.qty) || 0;
+  if (p.mode === "fill") { const sz = parseFloat(f.size); return sz > 0 ? q / sz : 0; }
+  return q;
+}
+function modeOptions(f, sel) {
+  const per = f && f.per ? f.per + "s" : "units";
+  const o = [`<option value="units" ${sel !== "fill" ? "selected" : ""}>${esc(per)}</option>`];
+  if (f && parseFloat(f.size) > 0) o.push(`<option value="fill" ${sel === "fill" ? "selected" : ""}>${esc(f.unit)} total</option>`);
+  return o.join("");
+}
+function requirements() {
+  const req = new Map(), missing = new Map(), info = [];
+  const k = 1 + (parseFloat(planOver) || 0) / 100;
+  plan.forEach(p => {
+    const f = fById(p.fid); if (!f) return;
+    calc(f);
+    const scale = planUnits(p, f) / Math.max(1, parseInt(f.n, 10) || 1) * k;
+    if (!(scale > 0)) return;
+    f.lines.forEach(l => {
+      if (l.excluded) return;
+      const it = l.matchId ? inv.byId.get(l.matchId) : null;
+      if (!it) {
+        const key = normKey(l.name) + "|" + l.dim;
+        const m = missing.get(key) || { name: l.name, dim: l.dim, base: 0, uses: new Set(), known: true };
+        if (l.base != null) m.base += l.base * scale; else m.known = false;
+        m.uses.add(f.title); missing.set(key, m); return;
+      }
+      if (l.invUom == null || l.cost == null) { info.push({ name: l.name, f: f.title, item: it, why: l.err || "Quantity could not be worked out." }); return; }
+      const r = req.get(it.id) || { item: it, qty: 0, uses: new Set(), names: new Set() };
+      r.qty += l.invUom * scale; r.uses.add(f.title); r.names.add(l.name); req.set(it.id, r);
+    });
+  });
+  if (book[cur]) calc(book[cur]);                    // leave the selected formula's line state as displayed
+  const rows = [...req.values()].map(r => {
+    const oh = r.item.onHand;
+    r.status = !isFinite(oh) ? "unknown" : oh >= r.qty - 1e-9 ? "ok" : oh > 0 ? "short" : "out";
+    r.balance = isFinite(oh) ? oh - r.qty : NaN;
+    return r;
+  });
+  const order = { out: 0, short: 1, unknown: 2, ok: 3 };
+  rows.sort((a, b) => order[a.status] - order[b.status] || a.item.name.localeCompare(b.item.name));
+  return { rows, missing: [...missing.values()], info };
+}
+const STATUS = { ok: ["ok", "In stock"], short: ["warn", "Short"], out: ["bad", "Out of stock"], unknown: ["off", "Stock unknown"] };
+/* quantity in the item's UOM, plus a readable form when the UOM is large (0.0003 KG → 0.3 g) */
+function fq(v, it) {
+  const main = `${round(v, Math.abs(v) < 1 ? 4 : 3).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${it.unitStr}`;
+  if (it.u && (it.u.dim === "mass" || it.u.dim === "vol") && it.u.f * it.u.pack >= 1000 && Math.abs(v) < 1 && v !== 0)
+    return `${main} <span class="muted">(${fmtQty(v * it.u.f * it.u.pack, it.u.dim)})</span>`;
+  return main;
+}
+const toBuy = (r) => { const q = r.qty - Math.max(0, r.item.onHand); return r.item.u && r.item.u.dim === "count" ? Math.ceil(q - 1e-9) : q; };
+function renderPlan() {
+  $("planf").innerHTML = book.map(f => `<option value="${f.id}" ${book[cur] && f.id === book[cur].id ? "selected" : ""}>${esc(f.title)}</option>`).join("");
+  const selF = fById($("planf").value);
+  const prevMode = $("planm").value;
+  $("planm").innerHTML = modeOptions(selF, prevMode);
+  $("planover").value = planOver;
+  plan = plan.filter(p => fById(p.fid));
+  updatePlanAllLabel();
+  $("planclear").hidden = !plan.length;
+  const tb = $("plan").querySelector("tbody");
+  tb.innerHTML = plan.length ? plan.map((p, i) => {
+    const f = fById(p.fid), t = totals(f), u = planUnits(p, f);
+    const k = 1 + (parseFloat(planOver) || 0) / 100;
+    return `<tr><td>${esc(f.title)}</td>
+      <td><span class="row" style="gap:6px;flex-wrap:nowrap"><input type="number" id="pq${i}" min="0" step="any" value="${esc(p.qty)}" aria-label="Quantity to make" class="num"><select id="pm${i}" aria-label="Unit">${modeOptions(f, p.mode)}</select></span></td>
+      <td class="num">${round(u, 2)}</td><td class="num">${money(t.M / t.n * u * k)}</td><td class="num">${money(t.cpu * u)}</td>
+      <td><button type="button" class="x" data-rm="${i}" aria-label="Remove ${esc(f.title)} from plan">✕</button></td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">Nothing planned yet. Pick a formula, enter how many to make, and choose “Add to plan”.</td></tr>`;
+  plan.forEach((p, i) => {
+    $("pq" + i).addEventListener("change", e => { p.qty = e.target.value; savePlan(); renderPlan(); });
+    $("pm" + i).addEventListener("change", e => { p.mode = e.target.value; savePlan(); renderPlan(); });
+  });
+  tb.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { plan.splice(+b.dataset.rm, 1); savePlan(); renderPlan(); }));
+
+  const R = requirements();
+  const c = { ok: 0, short: 0, out: 0, unknown: 0 }; R.rows.forEach(r => c[r.status]++);
+  $("tally").innerHTML = plan.length ? `
+    <div class="t ok"><b>${c.ok}</b><span>In stock</span></div>
+    <div class="t warn"><b>${c.short}</b><span>Short (partial stock)</span></div>
+    <div class="t bad"><b>${c.out}</b><span>Out of stock</span></div>
+    <div class="t bad"><b>${R.missing.length}</b><span>Not in inventory list</span></div>` + (R.info.length ? `<div class="t warn"><b>${R.info.length}</b><span>Need a unit conversion</span></div>` : "") : "";
+  $("req").querySelector("tbody").innerHTML = R.rows.length ? R.rows.map(r => {
+    const [cls, label] = STATUS[r.status];
+    const need = r.status === "short" || r.status === "out" ? `<div class="note ${cls}">Buy at least ${fq(toBuy(r), r.item)}</div>` : "";
+    return `<tr><td><div>${esc(r.item.name)}</div><div class="used">${esc(r.item.code)} · for ${esc([...r.names].join(", "))} · ${r.uses.size} formula${r.uses.size > 1 ? "s" : ""}</div></td>
+      <td class="num">${fq(r.qty, r.item)}</td><td class="num">${isFinite(r.item.onHand) ? fq(r.item.onHand, r.item) : "–"}</td>
+      <td class="num">${isFinite(r.balance) ? fq(r.balance, r.item) : "–"}</td><td><span class="chip ${cls}">${label}</span>${need}</td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="empty">${plan.length ? "No matched raw materials in this plan." : "Requirements appear here once you add a formula to the plan."}</td></tr>`;
+  $("reqextra").innerHTML =
+    (R.missing.length ? `<h3 class="sub3">Not in the inventory list (${R.missing.length})</h3><div class="table-scroll"><table><thead><tr><th>Ingredient</th><th class="num">Required</th><th>Used in</th></tr></thead><tbody>` +
+      R.missing.map(m => `<tr><td>${esc(m.name)}</td><td class="num">${m.known ? fmtQty(m.base, m.dim) : "–"}</td><td class="small">${esc([...m.uses].join(", "))}</td></tr>`).join("") +
+      `</tbody></table></div><p class="small muted">Match these in step 3 if they exist under another name, otherwise they need to be purchased and added to inventory.</p>` : "") +
+    (R.info.length ? `<h3 class="sub3">Matched but quantity unknown (${R.info.length})</h3><ul class="small">` +
+      R.info.map(x => `<li><strong>${esc(x.name)}</strong> in ${esc(x.f)} → ${esc(x.item.name)}: ${esc(x.why)}</li>`).join("") + `</ul>` : "");
+}
+$("planf").addEventListener("change", () => { $("planm").innerHTML = modeOptions(fById($("planf").value)); });
+$("planadd").addEventListener("click", () => {
+  const fid = $("planf").value, qty = $("planq").value;
+  if (!fById(fid) || !(parseFloat(qty) > 0)) return;
+  plan.push({ fid, qty, mode: $("planm").value || "units" }); savePlan(); renderPlan();
+});
+/* add every formula (or every formula matching the search in step 2) with the same quantity */
+const planTargets = () => { const q = $("bookq").value.trim().toLowerCase(); return book.filter(f => !q || (f.title + " " + f.source).toLowerCase().includes(q)); };
+function updatePlanAllLabel() {
+  const q = $("bookq").value.trim(), n = planTargets().length;
+  $("planall").textContent = q ? `Add ${n} matching formula${n === 1 ? "" : "s"}` : `Add all ${n} formulas`;
+  $("planall").disabled = !n;
+}
+$("planall").addEventListener("click", () => {
+  const qty = $("planq").value; if (!(parseFloat(qty) > 0)) { $("planq").focus(); return; }
+  const wantFill = $("planm").value === "fill";
+  planTargets().forEach(f => {
+    const mode = wantFill && parseFloat(f.size) > 0 ? "fill" : "units";
+    const ex = plan.find(p => p.fid === f.id);
+    if (ex) { ex.qty = qty; ex.mode = mode; } else plan.push({ fid: f.id, qty, mode });
+  });
+  savePlan(); renderPlan();
+});
+$("planclear").addEventListener("click", () => { plan = []; savePlan(); renderPlan(); });
+$("bookq").addEventListener("input", updatePlanAllLabel);
+$("planover").addEventListener("change", e => { planOver = e.target.value; savePlan(); renderPlan(); });
+$("copyreq").addEventListener("click", () => {
+  const R = requirements(), rows = [];
+  rows.push(["Production plan"], ["Formula", "Quantity", "Of", "Units"]);
+  plan.forEach(p => { const f = fById(p.fid); rows.push([f.title, p.qty, p.mode === "fill" ? f.unit : (f.per || "unit") + "s", round(planUnits(p, f), 3)]); });
+  rows.push(["Overage on quantities %", planOver], [], ["Item code", "Raw material / component", "UOM", "Required", "On hand", "Balance after", "Status", "To buy", "Cost per UOM", "Used for"]);
+  R.rows.forEach(r => rows.push([r.item.code, r.item.name, r.item.unitStr, round(r.qty, 4), isFinite(r.item.onHand) ? r.item.onHand : "", isFinite(r.balance) ? round(r.balance, 4) : "",
+    STATUS[r.status][1], r.status === "short" || r.status === "out" ? round(toBuy(r), 4) : "", r.item.price, [...r.names].join(", ")]));
+  R.missing.forEach(m => rows.push(["", m.name, "", m.known ? fmtQty(m.base, m.dim) : "", "", "", "Not in inventory list", m.known ? fmtQty(m.base, m.dim) : "", "", [...m.uses].join(", ")]));
+  R.info.forEach(x => rows.push([x.item.code, x.item.name, x.item.unitStr, "", x.item.onHand, "", "Quantity unknown: " + x.why, "", x.item.price, x.name]));
+  copyText(tsv(rows), "Copied the requirement list. Paste into Excel.");
+});
+
+/* ---------- copy for Excel ---------- */
+function formulaRows(f) {
+  const t = totals(f), out = [];
+  out.push(["Formula", f.title], ["Source", f.source], ["Fill / batch size", f.size ? f.size + " " + f.unit : ""], ["Quantities for", t.n + " " + (f.per || "unit")], []);
+  out.push(["Ingredient", "Role", "Qty", "Unit", "Inventory code", "Inventory item", "Cost per UOM", "UOM", "Qty used", "Line cost", "Match"]);
+  f.lines.forEach(l => {
+    const it = l.matchId ? inv.byId.get(l.matchId) : null;
+    out.push([l.name, l.role || "", l.unit === "q.s." ? "" : l.qty, l.unit, it ? it.code : "", l.excluded ? "NOT COSTED" : it ? it.name : "NOT MATCHED", it ? it.price : "", it ? it.unitStr : "",
+      l.base != null ? fmtQty(l.base, l.dim) : "", l.cost != null ? round(l.cost, 5) : "",
+      l.excluded ? "excluded" : !it ? "none" : (l.manual || l.learned) ? "chosen" : Math.round(l.conf * 100) + "%"]);
+  });
+  out.push([], ["Materials & components", "", "", "", "", "", "", "", "", round(t.M, 4)]);
+  t.rows.forEach(r => out.push([r.name, "", "", "", "", BASIS[r.p.basis], r.p.v, "", "", round(r.amt, 4)]));
+  out.push(["Total cost", "", "", "", "", "", "", "", "", round(t.total, 4)], ["Cost per " + (f.per || "unit"), "", "", "", "", "", "", "", "", round(t.cpu, 4)],
+    ["Selling price per " + (f.per || "unit") + ` (${pricing.method === "margin" ? "margin" : "markup"} ${pricing.pct}%)`, "", "", "", "", "", "", "", "", round(t.spu, 4)], ["Currency", pricing.ccy]);
+  return out;
+}
+function copyText(txt, okMsg) {
+  const fb = $("copyfallback");
+  const fallback = () => { fb.hidden = false; fb.value = txt; fb.focus(); fb.select(); $("copymsg").textContent = "Select all of the text below, copy it (Ctrl/Cmd + C), then paste into Excel."; };
+  try { navigator.clipboard.writeText(txt).then(() => { fb.hidden = true; $("copymsg").textContent = okMsg; }, fallback); } catch (e) { fallback(); }
+}
+const tsv = (rows) => rows.map(r => r.map(c => String(c ?? "").replace(/[\t\n]/g, " ")).join("\t")).join("\n");
+$("copy").addEventListener("click", () => { if (book[cur]) copyText(tsv(formulaRows(book[cur])), "Copied. Paste into Excel for the full costing sheet."); });
+$("copybook").addEventListener("click", () => {
+  const rows = [["Formula", "Source", "Ingredients matched", "Not matched", "To check", "Materials", "Total cost", "Cost per unit", "Selling price per unit", "Currency"]];
+  book.forEach(f => { const t = totals(f); rows.push([f.title, f.source, t.matched + "/" + t.count, t.unmatched, t.check, round(t.M, 4), round(t.total, 4), round(t.cpu, 4), round(t.spu, 4), pricing.ccy]); });
+  copyText(tsv(rows), `Copied ${book.length} formulas. Paste into Excel.`);
+});
+
+/* ---------- file reading ---------- */
+function readWorkbook(file, cb) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      if (typeof XLSX === "undefined") throw new Error("Excel reader did not load. Check your internet connection and reload the page.");
+      const wb = XLSX.read(new Uint8Array(fr.result), { type: "array" });
+      cb(wb.SheetNames.map(n => ({ name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: "" }) })));
+    } catch (e) { showFormStatus(`Could not read ${file.name}. ${e.message || "Save it as .xlsx or .csv and try again."}`, true); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+function showFormStatus(msg, err) { const el = $("formstatus"); el.hidden = false; el.className = "status" + (err ? " err" : ""); el.textContent = msg; }
+$("invfile").addEventListener("change", e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  readWorkbook(f, sheets => {
+    const s = sheets.find(x => findHeaderRow(x.rows) >= 0 && x.rows.length > 2) || sheets[0];
+    setInventory(s.rows, f.name, false);
+  });
+});
+$("formfile").addEventListener("change", e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  const base = file.name.replace(/\.[^.]+$/, "");
+  if (/\.docx$/i.test(file.name)) {
+    if (typeof mammoth === "undefined") { showFormStatus("The Word reader did not load. Check your internet connection and reload the page.", true); return; }
+    const fr = new FileReader();
+    fr.onload = () => mammoth.convertToHtml({ arrayBuffer: fr.result }).then(res => {
+      const rows = docxToRows(res.value);
+      let list = extractFormulas(rows, base);
+      if (!list.length) {
+        const lines = parseFormulaText(rows.map(r => r.join("\t")).join("\n")).filter(l => l.qty !== "" || l.unit === "q.s.");
+        if (lines.length) list = [{ title: base, source: file.name, info: "", per: "", size: "", unit: "mL", n: 1, lines }];
+      }
+      finishImport(list, file.name);
+    }).catch(() => showFormStatus(`Could not read ${file.name}. Is it a .docx file? Older .doc files must be saved as .docx first.`, true));
+    fr.readAsArrayBuffer(file);
+    return;
+  }
+  if (/\.doc$/i.test(file.name)) { showFormStatus("Older .doc files can't be read. Open it in Word and save as .docx, then upload again.", true); return; }
+  readWorkbook(file, sheets => {
+    let list = [];
+    sheets.forEach(s => list.push(...extractFormulas(s.rows, sheets.length > 1 ? s.name : base)));
+    if (!list.length) {
+      const rows = sheets[0].rows.filter(r => r.some(c => str(c)));
+      const lines = parseFormulaText(rows.map(r => r.slice(0, 3).join("\t")).join("\n")).filter(l => l.qty !== "" || l.unit === "q.s.");
+      if (lines.length) list = [{ title: base, source: file.name, info: "", per: "", size: "", unit: "g", n: 1, lines }];
+    }
+    finishImport(list, file.name);
+  });
+});
+function finishImport(list, name) {
+  if (!list.length) { showFormStatus(`No formula table found in ${name}. Each formula needs a header row with an ingredient column and a quantity column.`, true); return; }
+  const first = isSampleBook ? 0 : book.length;
+  addFormulas(list, isSampleBook);
+  isSampleBook = false;
+  cur = first;
+  const lines = list.reduce((a, f) => a + f.lines.length, 0);
+  const t = list.map(totals);
+  const unmatched = t.reduce((a, x) => a + x.unmatched, 0), check = t.reduce((a, x) => a + x.check, 0);
+  showFormStatus(`Found ${list.length} ${list.length === 1 ? "formula" : "formulas"} (${lines} ingredient lines) in ${name}. ${unmatched} lines have no inventory match and ${check} need checking.`);
+  saveBook(); refreshAll();
+}
+$("showpaste").addEventListener("click", () => { $("pastebox").hidden = !$("pastebox").hidden; if (!$("pastebox").hidden) $("ftext").focus(); });
+$("parse").addEventListener("click", () => {
+  const lines = parseFormulaText($("ftext").value);
+  if (!lines.length) return;
+  if (isSampleBook) { book = []; isSampleBook = false; }
+  addFormulas([{ title: $("pname").value || "Pasted formula", source: "Pasted", info: "", per: "", size: "", unit: "g", n: 1, lines }]);
+  cur = book.length - 1; $("ftext").value = ""; $("pastebox").hidden = true; saveBook(); refreshAll();
+});
+$("bookq").addEventListener("input", renderBook);
+$("fname").addEventListener("change", e => { if (book[cur]) { book[cur].title = e.target.value; changed(); } });
+$("bsize").addEventListener("change", e => { if (book[cur]) { book[cur].size = e.target.value; changed(); } });
+$("bunit").addEventListener("change", e => { if (book[cur]) { book[cur].unit = e.target.value; changed(); } });
+$("nunits").addEventListener("change", e => { if (book[cur]) { book[cur].n = e.target.value; changed(); } });
+$("addprov").addEventListener("click", () => { provs.push({ name: "New provision", basis: "batch", v: 0 }); saveProvs(); renderProvs(); renderSummary(); renderBook(); });
+$("resetprov").addEventListener("click", () => { provs = DEFAULT_PROVS.map(p => ({ ...p })); saveProvs(); renderProvs(); renderSummary(); renderBook(); });
+$("pmethod").value = pricing.method; $("ppct").value = pricing.pct; $("ccy").value = pricing.ccy;
+$("pmethod").addEventListener("change", e => { pricing.method = e.target.value; store.set("fc.pricing", pricing); renderSummary(); renderBook(); });
+$("ppct").addEventListener("input", e => { pricing.pct = e.target.value; store.set("fc.pricing", pricing); renderSummary(); renderBook(); });
+$("ccy").addEventListener("input", e => { pricing.ccy = e.target.value; store.set("fc.pricing", pricing); renderLines(); renderSummary(); renderBook(); });
+
+/* ---------- example data (made up, in the same layout as the real exports) ---------- */
+const SAMPLE_INV = [
+  ["Example Pharmacy LLC"], ["Item Valuation Summary"], ["As of Date : example data"],
+  ["Item Code", "Item Description", "UOM", "On Hand", "Avg Cost(OMR)", "Total Value(OMR)"],
+  ["Main Category : - Inventory"], ["Sub Category : - Compounding Inventory"], ["Sub Sub Category : - Raw Materials"],
+  ["DEMO/INV/0101", "ASCORBIC ACID-Sterilized", "KG", 1.2, 70.5], ["DEMO/INV/0102", "L-Ascorbic Acid", "Gram", 0, 0],
+  ["DEMO/INV/0103", "L-Glutamine USP", "Gram", 480, 0.085], ["DEMO/INV/0104", "Magnesium Chloride Hexahydrate USP", "Gram", 950, 0.038],
+  ["DEMO/INV/0105", "Thiamine HCL-Sterilized", "KG", 0.4, 310], ["DEMO/INV/0106", "Riboflavin 5-Phosphate Sodium", "Gram", 50, 0.41],
+  ["DEMO/INV/0107", "Dexpanthenol USP", "ML", 500, 0.048], ["DEMO/INV/0108", "Pyridoxine HCl USP", "Gram", 100, 0.12],
+  ["DEMO/INV/0109", "Hydroxocobalamin Acetate", "Milligram", 5000, 0.0062], ["DEMO/INV/0110", "Zinc Sulphate Heptahydrate", "Gram", 250, 0.031],
+  ["DEMO/INV/0111", "Glutathione L USP", "Gram", 1400, 0.55], ["DEMO/INV/0112", "Acetate Buffer", "ML", 900, 0.0012],
+  ["DEMO/INV/0113", "Phosphate Buffer", "ML", 800, 0.0019], ["DEMO/INV/0114", "Water for Injection 500 ML", "Qty", 50, 0.35],
+  ["Sub Total", "", "", "", "", 0], ["Sub Sub Category : - Peptides"],
+  ["DEMO/INV/0201", "BPC-157", "Gram", 2, 75], ["DEMO/INV/0202", "TB-500 (Thymosin Beta-4)", "Milligram", 500, 0.33],
+  ["Sub Total", "", "", "", "", 0], ["Sub Sub Category : - Packing Material"],
+  ["DEMO/INV/0301", "Serum Bottles Amber Glass 50ml 20mm(Type 1)", "Piece", 150, 0.26], ["DEMO/INV/0302", "Stopper 20mm Snap-On Chlorobutyl-Grey", "Piece", 600, 0.042],
+  ["DEMO/INV/0303", "Seals Aluminum Flip Off 20mm Blank Top-Black", "Piece", 900, 0.029], ["DEMO/INV/0304", "Injection pen-Disposable Injection Pen", "Each", 300, 5.9],
+  ["DEMO/INV/0305", "Pen Cartridge 3ml with Cap", "Each", 0, 0],
+  ["Sub Total", "", "", "", "", 0], ["Sub Category : - Inventory Laboratory"], ["Sub Sub Category : - Consumables"],
+  ["DEMO/INV/0401", "Vitamin B12 (eCLIA)", "Test", 100, 0.44], ["Grand Total", "", "", "", "", 0]
+];
+const SAMPLE_MFR = [
+  ["EXAMPLE MASTER FORMULA RECORD (made-up data)"],
+  ["IV 01 — Antioxidant Drip"], ["Container: 50 mL amber glass bottle + stopper + flip-off cap  ·  Fill: 50 mL"],
+  ["Raw Material / Component", "Role", "Qty / bottle", "Unit", "Conc (per mL)", "Qty / batch", "Unit cost", "Cost / bottle"],
+  ["Ascorbic acid (Vit C)", "Active", 4000, "mg", 80, 4000, 0, 0], ["L-Glutamine", "Active", 200, "mg", 4, 200, 0, 0],
+  ["Magnesium chloride", "Active", 1000, "mg", 20, 1000, 0, 0], ["Thiamine HCl (Vit B1)", "Active", 250, "mg", 5, 250, 0, 0],
+  ["Dexpanthenol (Vit B5)", "Active", 500, "mg", 10, 500, 0, 0], ["Hydroxocobalamin (Vit B12)", "Active", 1000, "mcg", 20, 1000, 0, 0],
+  ["Acetate buffer pH ~5.0 (0.1 M)", "Buffer", 5, "mL", "", 5, 0, 0], ["Sterile Water for Injection (SWFI)", "Vehicle — q.s. to 50 mL", 45, "mL", "", 45, 0, 0],
+  ["1 M NaOH / 1 M HCl", "pH adjust to 5.5", "q.s.", "drops", "", "", "", ""],
+  ["50 mL amber glass bottle", "Component", 1, "each", "", 1, 0, 0], ["Rubber stopper (IV bottle)", "Component", 1, "each", "", 1, 0, 0],
+  ["Aluminium flip-off cap/seal (IV bottle)", "Component", 1, "each", "", 1, 0, 0],
+  ["COST PER BOTTLE (materials + components)  →", "", "", "", "", "", "", 0], [],
+  ["IV 02 — Glutathione Push"], ["Container: 50 mL amber glass bottle  ·  Fill: 50 mL"],
+  ["Raw Material / Component", "Role", "Qty / bottle", "Unit", "Conc (per mL)", "Qty / batch", "Unit cost", "Cost / bottle"],
+  ["Glutathione (GSH)", "Active", 2000, "mg", 40, 2000, 0, 0], ["Riboflavin (Vit B2)", "Active", 5, "mg", 0.1, 5, 0, 0],
+  ["Acetate buffer pH ~5.0 (0.1 M)", "Buffer", 5, "mL", "", 5, 0, 0], ["Sterile Water for Injection (SWFI)", "Vehicle", 45, "mL", "", 45, 0, 0],
+  ["50 mL amber glass bottle", "Component", 1, "each", "", 1, 0, 0], ["Rubber stopper (IV bottle)", "Component", 1, "each", "", 1, 0, 0],
+  ["Aluminium flip-off cap/seal (IV bottle)", "Component", 1, "each", "", 1, 0, 0],
+  ["COST PER BOTTLE (materials + components)  →", "", "", "", "", "", "", 0], [],
+  ["PEP-001 — BPC-157 / TB-500"], ["Container: 4 mL amber pen/vial + cap  ·  Fill: 4 mL"],
+  ["Raw Material / Component", "Role", "Qty / pen", "Unit", "Conc (per mL)", "Qty / batch", "Unit cost", "Cost / pen"],
+  ["BPC-157", "Active", 8, "mg", 2, 8, 0, 0], ["TB-500 (Thymosin β4)", "Active", 8, "mg", 2, 8, 0, 0],
+  ["Phosphate buffer pH 7.0 (0.1 M)", "Vehicle — q.s. to 4 mL", 4, "mL", "", 4, 0, 0],
+  ["4 mL pen / vial (amber)", "Component", 1, "each", "", 1, 0, 0], ["Pen cartridge cap / plunger", "Component", 1, "each", "", 1, 0, 0],
+  ["COST PER PEN (materials + components)  →", "", "", "", "", "", "", 0]
+];
+let isSampleBook = false;
+function loadSample() {
+  store.del("fc.book");
+  setInventory(SAMPLE_INV, "the example file", true);
+  book = []; addFormulas(extractFormulas(SAMPLE_MFR, "Example MFR")); cur = 0; isSampleBook = true;
+  plan = [{ fid: book[0].id, qty: 40, mode: "units" }, { fid: book[2].id, qty: 25, mode: "units" }]; savePlan();
+  showFormStatus("Showing 3 made-up example formulas. Upload your master formula record to replace them.");
+  $("formstatus").className = "status sample";
+  refreshAll();
+}
+$("loadsample").addEventListener("click", loadSample);
+
+/* ---------- first load: what this browser saved last time, otherwise the example ---------- */
+renderProvs();
+const savedInv = store.get("fc.inv", null);
+const savedBook = store.get("fc.book", null);
+if (savedInv && savedInv.rows) {
+  setInventory(savedInv.rows, savedInv.source.replace(/ \(saved in this browser\)$/, "") + " (saved in this browser)", false, savedInv.map);
+  if (savedBook && savedBook.book && savedBook.book.length) { loadBook(savedBook); refreshAll(); }
+  else refreshAll();
+} else {
+  loadSample();
+}
+})();
+</script>
+</html>
