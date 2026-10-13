@@ -137,6 +137,19 @@ details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
 #plan select { min-width: 0; }
 #req td .used { font-size: 11px; color: var(--muted); margin-top: 2px; }
 h3.sub3 { font-family: var(--display); font-weight: 600; font-size: 14px; margin: 16px 0 8px; }
+details.rev { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+details.rev + details.rev { margin-top: 6px; }
+details.rev > summary { list-style: none; padding: 9px 12px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--ink); font-size: 14px; }
+details.rev > summary::-webkit-details-marker { display: none; }
+details.rev > summary .ttl { font-weight: 500; flex: 1 1 220px; min-width: 0; }
+details.rev[open] > summary { border-bottom: 1px solid var(--line); }
+details.rev .body { padding: 10px 12px; }
+ul.find { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ul.find li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; font-size: 13px; }
+ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.sevbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.sys { margin-bottom: 14px; }
+.sys table td { font-size: 13px; }
 .empty { padding: 18px; text-align: center; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -211,6 +224,7 @@ h3.sub3 { font-family: var(--display); font-weight: 600; font-size: 14px; margin
           <label class="f" style="flex:3 1 240px">Formula<input type="text" id="fname"></label>
           <label class="f" style="flex:1 1 90px">Fill / batch size<input type="number" id="bsize" min="0" step="any"></label>
           <label class="f" style="flex:0 1 80px">Unit<select id="bunit"><option>mL</option><option>g</option><option>L</option><option>kg</option></select></label>
+          <label class="excl" style="flex:1 1 100%; font-size:12px"><input type="checkbox" id="isinter"> This is an intermediate (stock solution or buffer) that other formulas can use</label>
           <label class="f" style="flex:1 1 130px">Quantities are for<span class="row" style="gap:6px; align-items:center"><input type="number" id="nunits" min="1" step="1" style="width:70px"> <span id="unitword">unit(s)</span></span></label>
         </div>
         <div class="table-scroll">
@@ -265,6 +279,21 @@ h3.sub3 { font-family: var(--display); font-weight: 600; font-size: 14px; margin
           </table>
         </div>
         <div id="reqextra"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-rev">
+        <div class="panel-head">
+          <div><span class="step">Step 6</span><h2 id="h-rev">Formula review: gaps &amp; recommendations</h2></div>
+          <button type="button" id="copyrev">Copy report for Excel</button>
+        </div>
+        <p class="small muted" style="margin:0 0 4px">Checks every formula against the inventory file and its own data: missing items, costs, units, volumes, packaging, stock and the warning notes written in the formula record. These are data checks. They do not replace a pharmacist's review of a formulation.</p>
+        <div class="tally" id="revtally"></div>
+        <div class="sys" id="revsys"></div>
+        <div class="sevbar">
+          <label class="f" style="flex-direction:row; align-items:center; gap:6px">Show <select id="revfilter"><option value="issues">Formulas with critical gaps or warnings</option><option value="critical">Formulas with critical gaps</option><option value="all">All formulas</option></select></label>
+          <span class="small muted" id="revcount"></span>
+        </div>
+        <div id="revlist"></div>
       </section>
     </div>
 
@@ -600,7 +629,7 @@ function makeLine(name, role, pq, unitCell) {
   const rawUnit = str(unitCell || (pq && pq.unit) || "").toLowerCase();
   const l = { name: str(name), role: str(role), qty: pq && !pq.qs ? pq.qty : "", unit: unit || "g",
     matchId: null, manual: false, learned: false, conv: "", excluded: false, qsTo: pq && pq.qsTo || null };
-  if (/drop/.test(rawUnit)) { l.unit = "drops"; l.excluded = true; l.exclNote = "pH adjustment in drops, not costed"; }
+  if (/drop/.test(rawUnit)) { l.unit = "drops"; l.excluded = true; l.exclNote = "pH adjustment in drops"; }
   if (pq && pq.qs && pq.qsTo) l.qsUnit = canonUnit(pq.unit || unitCell);
   return l;
 }
@@ -628,7 +657,7 @@ function extractFormulas(rows, source) {
     lastEnd = j; i = j - 1;
     if (!lines.length || /illustrative|example only/i.test(title)) continue;
     const sz = sizeFrom([...pre, title]);
-    out.push({ title, source, info: pre.filter(t => t !== title).slice(-3).join("  ·  "), per: h.per, size: sz ? sz.size : "", unit: sz ? sz.unit : "mL", n: 1, lines });
+    out.push({ title, source, info: pre.filter(t => t !== title).slice(-3).join("  ·  "), notes: pre.filter(t => t !== title && !/^(section|financial|elements)/i.test(t)).slice(-4), per: h.per, size: sz ? sz.size : "", unit: sz ? sz.unit : "mL", n: 1, lines });
   }
   return out;
 }
@@ -671,25 +700,68 @@ function addFormulas(list, replace) {
   list.forEach(f => {
     f.id = "f" + Math.random().toString(36).slice(2, 9);
     if (!f.size) { const qs = f.lines.find(l => l.qsTo); if (qs) { f.size = qs.qsTo; f.unit = qs.qsUnit || f.unit; } }
+    if (f.isInter == null) f.isInter = looksIntermediate(f);
     f.lines.forEach(l => { l._f = f; autoMatch(l); });
     book.push(f);
   });
+  linkIntermediates();
+}
+
+/* ---------- intermediates (stock solutions, buffers) used inside other formulas ---------- */
+const learnedSrc = store.get("fc.learnedSrc", {});        // ingredient name -> intermediate title, or "inv"
+function looksIntermediate(f) { return /intermediate|stock solution/i.test(f.source) || /^INT[\s\-]?\d/i.test(f.title) || /\b(buffer|stock|dilution)\b/i.test(f.title.split(/\s[—–]\s/)[0]); }
+const normCode = (a, n) => (a + "-" + String(+n).padStart(2, "0")).toUpperCase();
+function fCode(f) { const m = f.title.match(/^([A-Z]{1,6})[\s\-]?(\d{1,4})\b/i); return m ? normCode(m[1], m[2]) : null; }
+function codesIn(s) { const out = []; const re = /\b([A-Z]{2,6})[\s\-]?(\d{1,4})\b/g; let m; while ((m = re.exec(String(s)))) out.push(normCode(m[1], m[2])); return out; }
+function cleanTitle(t) { return String(t).replace(/^[A-Z]{1,6}[\s\-]?\d{1,4}(\s*\/\s*[A-Z]{1,6}[\s\-]?\d{1,4})*\s*[·—–:\-]?\s*/i, "").split(/\s[—–]\s/)[0]; }
+function yieldOf(g) { const u = unitInfo(g.unit), v = parseFloat(g.size); return u && v > 0 ? { dim: u.dim, base: v * u.f } : null; }
+function interCands(l) {
+  const f = l._f, dim = lineDim(l, f), refs = codesIn(l.name), out = [];
+  book.forEach(g => {
+    if (g === f || !g.isInter) return;
+    const y = yieldOf(g); if (!y || (dim && y.dim !== dim)) return;
+    let s = 0; const code = fCode(g);
+    if (code && refs.includes(code)) s = 1;
+    else { const t = prep(cleanTitle(g.title)); const it = { _c: t.c, _j: t.j }; nameVariants(l.name).forEach(v => { s = Math.max(s, v.w * score(v, it)); }); }
+    if (s >= 0.6) out.push({ f: g, s });
+  });
+  return out.sort((a, b) => b.s - a.s).slice(0, 3);
+}
+const interOf = (l) => l.src === "inter" ? book.find(g => g.title === l.interTitle) : null;
+function autoInter(l) {
+  l.interCands = l.excluded ? [] : interCands(l);
+  if (l.srcManual) { if (l.src === "inter" && !interOf(l)) { l.src = "inv"; l.srcManual = false; } else return; }
+  const ls = learnedSrc[normKey(l.name)];
+  if (ls === "inv") { l.src = "inv"; return; }
+  const byLearned = ls && l.interCands.find(c => c.f.title === ls);
+  const pick = byLearned || (l.interCands[0] && l.interCands[0].s >= 0.7 ? l.interCands[0] : null);
+  if (pick) { l.src = "inter"; l.interTitle = pick.f.title; } else { l.src = "inv"; l.interTitle = null; }
+}
+function linkIntermediates() { book.forEach(f => f.lines.forEach(l => { l._f = f; autoInter(l); })); }
+function chooseSrc(l, val) {
+  if (val === "inv") { l.src = "inv"; l.interTitle = null; learnedSrc[normKey(l.name)] = "inv"; }
+  else { const g = fById(val); if (!g) return; l.src = "inter"; l.interTitle = g.title; learnedSrc[normKey(l.name)] = g.title; }
+  l.srcManual = true; store.set("fc.learnedSrc", learnedSrc);
+  book.forEach(f => f.lines.forEach(o => { if (o !== l && !o.srcManual && normKey(o.name) === normKey(l.name)) autoInter(o); }));
+  changed();
 }
 function saveBook() {
-  const slim = book.map(f => ({ ...f, lines: f.lines.map(l => ({ name: l.name, role: l.role, qty: l.qty, unit: l.unit, conv: l.conv, excluded: l.excluded, exclNote: l.exclNote, qsTo: l.qsTo, manual: l.manual, matchKey: l.matchKey })) }));
+  const slim = book.map(f => ({ ...f, lines: f.lines.map(l => ({ name: l.name, role: l.role, qty: l.qty, unit: l.unit, conv: l.conv, excluded: l.excluded, exclNote: l.exclNote, qsTo: l.qsTo, manual: l.manual, matchKey: l.matchKey, src: l.src, interTitle: l.interTitle, srcManual: l.srcManual })) }));
   store.set("fc.book", { book: slim, cur });
 }
 function loadBook(saved) {
-  book = saved.book.map(f => { f.lines.forEach(l => { l._f = f; if (l.manual) relinkManual(l); else autoMatch(l); }); return f; });
+  book = saved.book.map(f => { if (f.isInter == null) f.isInter = looksIntermediate(f); f.lines.forEach(l => { l._f = f; if (l.manual) relinkManual(l); else autoMatch(l); }); return f; });
+  linkIntermediates();
   cur = Math.min(saved.cur || 0, book.length - 1);
 }
 
 /* ---------- calculation ---------- */
-function calc(f) {
+function calc(f, stack) {
+  stack = stack || new Set(); stack.add(f.id);
   const bu = unitInfo(f.unit), bv = parseFloat(f.size);
   const bb = bu && bv > 0 ? { dim: bu.dim, v: bv * bu.f } : null;
   f.lines.forEach(l => {
-    l.err = ""; l.base = null; l.dim = null; l.cost = null; l.invQty = null; l.needConv = false; l.convAuto = false;
+    l.err = ""; l.base = null; l.dim = null; l.cost = null; l.invQty = null; l.invUnits = null; l.invUom = null; l.needConv = false; l.convAuto = false; l.interPer = null;
     if (l.excluded) return;
     if (l.unit === "q.s.") return;
     const q = parseFloat(l.qty);
@@ -711,8 +783,19 @@ function calc(f) {
   }
   let materials = 0;
   f.lines.forEach(l => {
+    if (l.base == null || l.excluded) return;
+    if (l.src === "inter") {
+      const g = interOf(l), y = g && yieldOf(g);
+      if (!g) { l.err = "The intermediate formula is no longer in the list."; return; }
+      if (!y) { l.err = `Set the batch size of ${g.title} to cost it per ${BASE[l.dim] || "unit"}.`; return; }
+      if (y.dim !== l.dim) { l.err = `${g.title} is made in ${BASE[y.dim]}, this line is in ${BASE[l.dim]}.`; return; }
+      if (stack.has(g.id)) { l.err = "Circular reference between intermediates."; return; }
+      l.interPer = calc(g, new Set(stack)) / y.base;
+      l.cost = l.base * l.interPer; materials += l.cost;
+      return;
+    }
     const it = l.matchId ? inv.byId.get(l.matchId) : null;
-    if (!it || l.base == null || l.excluded) return;
+    if (!it) return;
     if (!it.u) { l.err = l.err || `Item UOM “${it.unitStr}” not readable.`; return; }
     if (!isFinite(it.price)) { l.err = l.err || "Item has no cost in the inventory file."; return; }
     let invUnits;
@@ -754,13 +837,13 @@ function totals(f) {
   });
   const cpu = run / n, pct = parseFloat(pricing.pct) || 0;
   const spu = pricing.method === "margin" ? (pct < 100 ? cpu / (1 - pct / 100) : NaN) : cpu * (1 + pct / 100);
-  const active = f.lines.filter(l => !l.excluded);
+  const active = f.lines.filter(l => !l.excluded), fromInv = active.filter(l => l.src !== "inter");
   return { n, M, rows, total: run, cpu, spu,
-    matched: active.filter(l => l.matchId).length, count: active.length,
-    unmatched: active.filter(l => !l.matchId).length,
-    check: active.filter(l => l.matchId && !l.manual && !l.learned && l.conf < 0.75).length,
-    errs: active.filter(l => l.matchId && l.err).length,
-    zero: active.filter(l => { const it = l.matchId && inv.byId.get(l.matchId); return it && !(it.price > 0); }).length };
+    matched: active.filter(l => l.matchId || l.src === "inter").length, count: active.length,
+    unmatched: fromInv.filter(l => !l.matchId).length,
+    check: fromInv.filter(l => l.matchId && !l.manual && !l.learned && l.conf < 0.75).length,
+    errs: active.filter(l => (l.matchId || l.src === "inter") && l.err).length,
+    zero: fromInv.filter(l => { const it = l.matchId && inv.byId.get(l.matchId); return it && !(it.price > 0); }).length };
 }
 
 /* ---------- rendering ---------- */
@@ -787,24 +870,31 @@ function renderBook() {
 }
 function renderFormulaHead() {
   const f = book[cur];
-  ["fname", "bsize", "bunit", "nunits"].forEach(id => $(id).disabled = !f);
+  ["fname", "bsize", "bunit", "nunits", "isinter"].forEach(id => $(id).disabled = !f);
   if (!f) { $("fname").value = ""; return; }
   $("fname").value = f.title; $("bsize").value = f.size; $("bunit").value = f.unit || "mL"; $("nunits").value = f.n;
   $("unitword").textContent = f.per ? f.per + "(s)" : "unit(s)";
+  $("isinter").checked = !!f.isInter;
 }
 function renderLines() {
   const f = book[cur], tb = $("lines").querySelector("tbody");
+  if (f) calc(f);
   if (!f) { tb.innerHTML = `<tr><td colspan="6" class="empty">Select a formula from the list above.</td></tr>`; return; }
   const unitOpts = ["mcg", "mg", "g", "kg", "mL", "L", "IU", "ea", "%", "q.s.", "drops"];
   tb.innerHTML = f.lines.map((l, i) => {
     const it = l.matchId ? inv.byId.get(l.matchId) : null;
     let chip;
+    const g = interOf(l);
     if (l.excluded) chip = `<span class="chip off">Not costed</span>`;
+    else if (g) chip = `<span class="chip learned">Made in-house</span>`;
     else if (!it) chip = `<span class="chip bad">No match</span>`;
     else if (l.manual || l.learned) chip = `<span class="chip learned">Your choice</span>`;
     else if (l.conf >= 0.75) chip = `<span class="chip ok">Matched ${Math.round(l.conf * 100)}%</span>`;
     else chip = `<span class="chip warn">Check ${Math.round(l.conf * 100)}%</span>`;
-    const showAlts = !l.excluded && !l.manual && !l.learned && (l.conf < 0.75 || !it);
+    const srcSel = !l.excluded && l.interCands && l.interCands.length
+      ? `<label class="conv">Source <select id="ls${i}" aria-label="Source" style="max-width:100%"><option value="inv" ${!g ? "selected" : ""}>Inventory stock item</option>${l.interCands.map(c => `<option value="${c.f.id}" ${g === c.f ? "selected" : ""}>Make from ${esc(c.f.title)}</option>`).join("")}</select></label>` : "";
+    const interNote = g ? `<div class="note">Costed from the ${esc(g.title)} recipe${l.interPer != null ? `: ${money(l.interPer, 5)} per ${BASE[l.dim]} (materials only)` : ""}.${it ? " Ready-made stock of the item above is used first in the production plan." : ""}</div>` : "";
+    const showAlts = !g && !l.excluded && !l.manual && !l.learned && (l.conf < 0.75 || !it);
     const alts = showAlts ? (l.cands || []).filter(c => c.item.id !== l.matchId).slice(0, 3)
       .map(c => `<button type="button" data-pick="${i}" data-id="${c.item.id}" title="${esc(c.item.code)} · ${Math.round(c.s * 100)}% similar">${esc(c.item.name)} <span class="muted">${esc(money(c.item.price))}/${esc(c.item.unitStr)}</span></button>`).join("") : "";
     const units = unitOpts.includes(l.unit) ? unitOpts : [l.unit, ...unitOpts];
@@ -820,9 +910,9 @@ function renderLines() {
       <td class="w-unit"><select id="lu${i}" aria-label="Unit">${units.map(u => `<option ${u === l.unit ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></td>
       <td class="w-match">
         <input type="text" id="lm${i}" list="invlist" value="${it ? esc(itemLabel(it)) : ""}" placeholder="Search inventory…" aria-label="Inventory item">
-        <div style="margin-top:4px">${chip}</div>
+        <div style="margin-top:4px">${chip}</div>${srcSel}${interNote}
         ${it ? `<div class="iteminfo">${esc(money(it.price))} per ${esc(it.unitStr || "?")}${stock} · ${esc(it.cat)}</div>` : ""}
-        ${priceNote}
+        ${g ? "" : priceNote}
         ${alts ? `<div class="alts"><span class="note" style="margin:0">Other candidates:</span>${alts}</div>` : ""}
         ${conv}
         ${l.err && !l.excluded ? `<div class="note bad">${esc(l.err)}</div>` : ""}
@@ -832,10 +922,10 @@ function renderLines() {
     </tr>`;
   }).join("");
   f.lines.forEach((l, i) => {
-    $("ln" + i).addEventListener("change", e => { l.name = e.target.value; l.manual = false; autoMatch(l); changed(); });
+    $("ln" + i).addEventListener("change", e => { l.name = e.target.value; l.manual = false; l.srcManual = false; autoMatch(l); autoInter(l); changed(); });
     $("lq" + i).addEventListener("change", e => { l.qty = e.target.value; changed(); });
     $("lu" + i).addEventListener("change", e => { l.unit = e.target.value; if (!l.manual && !l.learned) autoMatch(l); changed(); });
-    $("lx" + i).addEventListener("change", e => { l.excluded = !e.target.checked; changed(); });
+    $("lx" + i).addEventListener("change", e => { l.excluded = !e.target.checked; autoInter(l); changed(); });
     $("lm" + i).addEventListener("change", e => {
       const v = e.target.value.trim(); e.target.setCustomValidity("");
       if (!v) { l.matchId = null; l.manual = true; l.matchKey = null; changed(); return; }
@@ -843,6 +933,7 @@ function renderLines() {
       if (it) choose(l, it); else { e.target.setCustomValidity("Pick an item from the list"); e.target.reportValidity(); }
     });
     const c = $("lc" + i); if (c) c.addEventListener("change", e => { l.conv = e.target.value; changed(); });
+    const sv = $("ls" + i); if (sv) sv.addEventListener("change", e => chooseSrc(l, e.target.value));
   });
   tb.querySelectorAll("[data-pick]").forEach(b => b.addEventListener("click", () => choose(f.lines[+b.dataset.pick], inv.byId.get(b.dataset.id))));
 }
@@ -885,9 +976,11 @@ function renderLearned() {
     book.forEach(f => f.lines.forEach(l => { l.manual = false; l.matchKey = null; autoMatch(l); })); changed();
   });
 }
-function refreshAll() { renderFormulaHead(); renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); }
+let revT;
+const queueReview = () => { clearTimeout(revT); revT = setTimeout(renderReview, 250); };
+function refreshAll() { renderFormulaHead(); renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); queueReview(); }
 let saveT;
-function changed() { renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); clearTimeout(saveT); saveT = setTimeout(saveBook, 400); }
+function changed() { renderLines(); renderSummary(); renderBook(); renderLearned(); renderPlan(); queueReview(); clearTimeout(saveT); saveT = setTimeout(saveBook, 400); }
 
 /* ---------- provisions ---------- */
 function renderProvs() {
@@ -924,15 +1017,21 @@ function modeOptions(f, sel) {
   return o.join("");
 }
 function requirements() {
-  const req = new Map(), missing = new Map(), info = [];
+  const req = new Map(), missing = new Map(), info = [], inter = new Map();
   const k = 1 + (parseFloat(planOver) || 0) / 100;
-  plan.forEach(p => {
-    const f = fById(p.fid); if (!f) return;
+  /* add one formula's lines, scaled; lines made from an intermediate are collected and expanded below */
+  const addF = (f, scale, label) => {
     calc(f);
-    const scale = planUnits(p, f) / Math.max(1, parseInt(f.n, 10) || 1) * k;
-    if (!(scale > 0)) return;
     f.lines.forEach(l => {
       if (l.excluded) return;
+      const g = interOf(l);
+      if (g && l.base != null && yieldOf(g) && yieldOf(g).dim === l.dim) {
+        const e = inter.get(g.id) || { f: g, need: 0, pending: 0, fromStock: 0, make: 0, uses: new Set(), stock: null, stockLeft: null };
+        e.need += l.base * scale; e.pending += l.base * scale; e.uses.add(label);
+        const st = l.matchId && inv.byId.get(l.matchId);
+        if (st && !e.stock && st.u && st.u.dim === l.dim) e.stock = st;
+        inter.set(g.id, e); return;
+      }
       const it = l.matchId ? inv.byId.get(l.matchId) : null;
       if (!it) {
         const key = normKey(l.name) + "|" + l.dim;
@@ -942,9 +1041,27 @@ function requirements() {
       }
       if (l.invUom == null || l.cost == null) { info.push({ name: l.name, f: f.title, item: it, why: l.err || "Quantity could not be worked out." }); return; }
       const r = req.get(it.id) || { item: it, qty: 0, uses: new Set(), names: new Set() };
-      r.qty += l.invUom * scale; r.uses.add(f.title); r.names.add(l.name); req.set(it.id, r);
+      r.qty += l.invUom * scale; r.uses.add(label); r.names.add(l.name); req.set(it.id, r);
     });
+  };
+  plan.forEach(p => {
+    const f = fById(p.fid); if (!f) return;
+    const scale = planUnits(p, f) / Math.max(1, parseInt(f.n, 10) || 1) * k;
+    if (scale > 0) addF(f, scale, f.title);
   });
+  /* expand intermediates: use ready-made stock first, then make the rest from the recipe (nested intermediates repeat) */
+  for (let pass = 0; pass < 10; pass++) {
+    const todo = [...inter.values()].filter(e => e.pending > 1e-12);
+    if (!todo.length) break;
+    todo.forEach(e => {
+      const amt = e.pending; e.pending = 0;
+      if (e.stock && e.stockLeft == null) e.stockLeft = isFinite(e.stock.onHand) ? Math.max(0, e.stock.onHand) * e.stock.u.f : 0;
+      const use = e.stock ? Math.min(e.stockLeft, amt) : 0;
+      e.stockLeft = e.stock ? e.stockLeft - use : null; e.fromStock += use;
+      const make = amt - use; e.make += make;
+      if (make > 1e-12) addF(e.f, make / yieldOf(e.f).base, e.f.title);
+    });
+  }
   if (book[cur]) calc(book[cur]);                    // leave the selected formula's line state as displayed
   const rows = [...req.values()].map(r => {
     const oh = r.item.onHand;
@@ -954,7 +1071,7 @@ function requirements() {
   });
   const order = { out: 0, short: 1, unknown: 2, ok: 3 };
   rows.sort((a, b) => order[a.status] - order[b.status] || a.item.name.localeCompare(b.item.name));
-  return { rows, missing: [...missing.values()], info };
+  return { rows, missing: [...missing.values()], info, inter: [...inter.values()] };
 }
 const STATUS = { ok: ["ok", "In stock"], short: ["warn", "Short"], out: ["bad", "Out of stock"], unknown: ["off", "Stock unknown"] };
 /* quantity in the item's UOM, plus a readable form when the UOM is large (0.0003 KG → 0.3 g) */
@@ -995,7 +1112,7 @@ function renderPlan() {
     <div class="t ok"><b>${c.ok}</b><span>In stock</span></div>
     <div class="t warn"><b>${c.short}</b><span>Short (partial stock)</span></div>
     <div class="t bad"><b>${c.out}</b><span>Out of stock</span></div>
-    <div class="t bad"><b>${R.missing.length}</b><span>Not in inventory list</span></div>` + (R.info.length ? `<div class="t warn"><b>${R.info.length}</b><span>Need a unit conversion</span></div>` : "") : "";
+    <div class="t bad"><b>${R.missing.length}</b><span>Not in inventory list</span></div>` + (R.inter.length ? `<div class="t"><b>${R.inter.filter(e => e.make > 1e-9).length}</b><span>Intermediates to prepare</span></div>` : "") + (R.info.length ? `<div class="t warn"><b>${R.info.length}</b><span>Need a unit conversion</span></div>` : "") : "";
   $("req").querySelector("tbody").innerHTML = R.rows.length ? R.rows.map(r => {
     const [cls, label] = STATUS[r.status];
     const need = r.status === "short" || r.status === "out" ? `<div class="note ${cls}">Buy at least ${fq(toBuy(r), r.item)}</div>` : "";
@@ -1003,7 +1120,13 @@ function renderPlan() {
       <td class="num">${fq(r.qty, r.item)}</td><td class="num">${isFinite(r.item.onHand) ? fq(r.item.onHand, r.item) : "–"}</td>
       <td class="num">${isFinite(r.balance) ? fq(r.balance, r.item) : "–"}</td><td><span class="chip ${cls}">${label}</span>${need}</td></tr>`;
   }).join("") : `<tr><td colspan="5" class="empty">${plan.length ? "No matched raw materials in this plan." : "Requirements appear here once you add a formula to the plan."}</td></tr>`;
+  const y = (e) => yieldOf(e.f);
   $("reqextra").innerHTML =
+    (R.inter.length ? `<h3 class="sub3">Intermediates (${R.inter.length})</h3><div class="table-scroll"><table><thead><tr><th>Intermediate</th><th class="num">Needed</th><th class="num">From ready-made stock</th><th class="num">To prepare</th><th class="num">Batches</th></tr></thead><tbody>` +
+      R.inter.map(e => `<tr><td><div>${esc(e.f.title)}</div><div class="used">for ${esc([...e.uses].join(", "))}${e.stock ? ` · stock item: ${esc(e.stock.name)}` : ""}</div></td>
+        <td class="num">${fmtQty(e.need, y(e).dim)}</td><td class="num">${e.stock ? fmtQty(e.fromStock, y(e).dim) : "–"}</td>
+        <td class="num">${fmtQty(e.make, y(e).dim)}</td><td class="num">${round(e.make / y(e).base, 2)} × ${esc(e.f.size)} ${esc(e.f.unit)}</td></tr>`).join("") +
+      `</tbody></table></div><p class="small muted">The raw materials for the quantity to prepare are already included in the requirement list above.</p>` : "") +
     (R.missing.length ? `<h3 class="sub3">Not in the inventory list (${R.missing.length})</h3><div class="table-scroll"><table><thead><tr><th>Ingredient</th><th class="num">Required</th><th>Used in</th></tr></thead><tbody>` +
       R.missing.map(m => `<tr><td>${esc(m.name)}</td><td class="num">${m.known ? fmtQty(m.base, m.dim) : "–"}</td><td class="small">${esc([...m.uses].join(", "))}</td></tr>`).join("") +
       `</tbody></table></div><p class="small muted">Match these in step 3 if they exist under another name, otherwise they need to be purchased and added to inventory.</p>` : "") +
@@ -1045,7 +1168,123 @@ $("copyreq").addEventListener("click", () => {
     STATUS[r.status][1], r.status === "short" || r.status === "out" ? round(toBuy(r), 4) : "", r.item.price, [...r.names].join(", ")]));
   R.missing.forEach(m => rows.push(["", m.name, "", m.known ? fmtQty(m.base, m.dim) : "", "", "", "Not in inventory list", m.known ? fmtQty(m.base, m.dim) : "", "", [...m.uses].join(", ")]));
   R.info.forEach(x => rows.push([x.item.code, x.item.name, x.item.unitStr, "", x.item.onHand, "", "Quantity unknown: " + x.why, "", x.item.price, x.name]));
+  if (R.inter.length) {
+    rows.push([], ["Intermediate", "Unit", "Needed", "From ready-made stock", "To prepare", "Batches", "Used for"]);
+    R.inter.forEach(e => { const y = yieldOf(e.f); rows.push([e.f.title, BASE[y.dim], round(e.need, 3), round(e.fromStock, 3), round(e.make, 3), round(e.make / y.base, 3), [...e.uses].join(", ")]); });
+  }
   copyText(tsv(rows), "Copied the requirement list. Paste into Excel.");
+});
+
+/* ---------- formula review: gaps & recommendations ---------- */
+const SEV = { critical: ["bad", "Critical"], warning: ["warn", "Warning"], info: ["off", "Note"] };
+function reviewFormula(f) {
+  const t = totals(f), out = [];
+  const add = (sev, text, rec) => out.push({ sev, text, rec });
+  const per = f.per || "unit";
+  const active = f.lines.filter(l => !l.excluded);
+  active.forEach(l => {
+    const g = interOf(l), it = l.matchId ? inv.byId.get(l.matchId) : null;
+    if (g) {
+      const gr = reviewCache.get(g.id) || reviewFormula(g);
+      reviewCache.set(g.id, gr);
+      if (gr.some(x => x.sev === "critical")) add("warning", `${l.name} is made from ${g.title}, which has its own critical gaps.`, `Fix ${g.title} first; its cost feeds into this formula.`);
+      if (l.err) add("critical", `${l.name}: ${l.err}`, "Correct the intermediate link or its batch size in step 3.");
+      return;
+    }
+    if (!it) { add("critical", `${l.name} has no inventory item, so it is costed at zero.`, "Match it in step 3 if it exists under another name; otherwise create the item in the system with a cost."); return; }
+    if (it.price < 0) add("critical", `${l.name} → ${it.name} (${it.code}) has a negative average cost (${money(it.price)} per ${it.unitStr}).`, "Correct the item's average cost in the system; negative costs usually come from stock adjustments.");
+    else if (!(it.price > 0)) add("critical", `${l.name} → ${it.name} (${it.code}) has zero cost in inventory.`, "Enter the purchase cost for this item, or pick an item that carries a cost.");
+    if (l.err) add("critical", `${l.name}: ${l.err}`, "Complete the missing quantity or unit conversion in step 3.");
+    if (!l.manual && !l.learned && l.conf < 0.75) add("warning", `${l.name} was matched to ${it.name} with ${Math.round(l.conf * 100)}% confidence.`, "Confirm or correct the match in step 3; your choice is remembered for every formula.");
+    if (!l.manual && !l.learned && l.cands && l.cands.length > 1) {
+      const alt = l.cands.find(c => c.item.id !== it.id && c.s >= l.conf - 0.04 && Math.abs((c.item.price || 0) - (it.price || 0)) > 1e-9);
+      if (alt) add("warning", `${l.name} fits two inventory items about equally: ${it.name} (${money(it.price)}/${it.unitStr}) and ${alt.item.name} (${money(alt.item.price)}/${alt.item.unitStr}).`, "Choose the correct item in step 3, and consider merging duplicate items in the item master.");
+    }
+    if (l.convAuto && !l.conv) add("warning", `${l.name}: assumed 1 ${it.unitStr} of ${it.name} = ${fmtQty(it.contents[l.dim], l.dim)}, read from the item name.`, "Confirm the pack content in step 3.");
+    if (isFinite(it.onHand) && it.onHand <= 0) add("warning", `${it.name} is out of stock (on hand ${round(it.onHand, 3)} ${it.unitStr}).`, "Order before scheduling this formula; see step 5 for quantities.");
+    else if (isFinite(it.onHand) && l.invUom != null && it.onHand < l.invUom / Math.max(1, parseInt(f.n, 10) || 1)) add("warning", `Not enough ${it.name} on hand for even one ${per}.`, "Order before scheduling this formula.");
+  });
+  f.lines.filter(l => l.excluded).forEach(l => add("info", `${l.name} is not costed${l.exclNote ? ` (${l.exclNote})` : ""}.`, "If it is a material cost, include it or cover it with a small fixed provision."));
+  if (!active.some(l => l.dim === "count" && !interOf(l)) && !f.isInter) add("warning", "No container, closure or device is listed.", `Add the bottle, vial, pen, cap or label as lines so packaging is in the cost per ${per}.`);
+  const y = yieldOf(f);
+  if (!y && active.some(l => l.unit === "q.s." || l.unit === "%")) add("critical", "Fill / batch size is missing, so q.s. and % lines cannot be worked out.", "Enter the fill or batch size in step 3.");
+  if (y && y.dim === "vol") {
+    const n = Math.max(1, parseInt(f.n, 10) || 1), fill = y.base;
+    const liquids = active.filter(l => l.dim === "vol" && l.unit !== "q.s." && l.base != null).reduce((a, l) => a + l.base, 0);
+    const solids = active.filter(l => l.dim === "mass" && l.base != null).reduce((a, l) => a + l.base, 0);
+    const hasQs = active.some(l => l.unit === "q.s.");
+    if (!hasQs && liquids > fill * 1.02) add("warning", `Liquid ingredients add up to ${fmtQty(liquids, "vol")}, more than the ${fmtQty(fill, "vol")} fill.`, "Check the liquid quantities or the fill volume.");
+    if (!hasQs && liquids >= fill * 0.98 && solids > fill * 0.02) add("warning", `Fixed liquids already make up the ${fmtQty(fill, "vol")} fill, and ${fmtQty(solids, "mass")} of solids are dissolved on top of that.`, "State the vehicle as q.s. to the final volume, so the final concentration matches the label.");
+    if (!hasQs && liquids < fill * 0.9 && liquids > 0) add("info", `Listed liquids total ${fmtQty(liquids, "vol")} for a ${fmtQty(fill, "vol")} fill.`, "Confirm the vehicle volume or add a q.s. line.");
+    void n;
+  }
+  const costed = active.filter(l => l.cost > 0);
+  if (t.M > 0 && costed.length > 1) {
+    const top = costed.reduce((a, b) => (b.cost > a.cost ? b : a));
+    const share = top.cost / t.M;
+    if (share >= 0.5) add("info", `${top.name} is ${Math.round(share * 100)}% of the material cost (${money(top.cost)} of ${money(t.M)} per ${per}).`, "This is the main cost driver; supplier price, pack size or strength changes here move the price most.");
+  }
+  (f.notes || []).filter(n => /⚠|incompatib|unstable|separate|do not/i.test(n)).forEach(n => add("info", `Formula record note: ${n.replace(/^buffer rationale:\s*/i, "")}`, "Flagged in the master formula record; confirm it is reflected in the compounding procedure and labelling."));
+  return out;
+}
+let reviewCache = new Map();
+function reviewAll() {
+  reviewCache = new Map();
+  const per = book.map(f => { const r = reviewCache.get(f.id) || reviewFormula(f); reviewCache.set(f.id, r); return { f, r }; });
+  if (book[cur]) calc(book[cur]);
+  /* system-wide: problems in the item master that affect several formulas */
+  const zero = new Map(), miss = new Map();
+  book.forEach(f => f.lines.forEach(l => {
+    if (l.excluded || interOf(l)) return;
+    const it = l.matchId && inv.byId.get(l.matchId);
+    if (it && !(it.price > 0)) { const e = zero.get(it.id) || { it, fs: new Set() }; e.fs.add(f.title); zero.set(it.id, e); }
+    if (!it) { const key = normKey(l.name); const e = miss.get(key) || { name: l.name, fs: new Set() }; e.fs.add(f.title); miss.set(key, e); }
+  }));
+  return { per, zero: [...zero.values()].sort((a, b) => b.fs.size - a.fs.size), miss: [...miss.values()].sort((a, b) => b.fs.size - a.fs.size) };
+}
+function renderReview() {
+  if (!book.length) { $("revtally").innerHTML = ""; $("revsys").innerHTML = ""; $("revlist").innerHTML = `<p class="empty">Load formulas to see the review.</p>`; $("revcount").textContent = ""; return; }
+  const R = reviewAll();
+  const crit = R.per.filter(x => x.r.some(y => y.sev === "critical")).length;
+  const warnOnly = R.per.filter(x => !x.r.some(y => y.sev === "critical") && x.r.some(y => y.sev === "warning")).length;
+  const clean = R.per.length - crit - warnOnly;
+  $("revtally").innerHTML = `
+    <div class="t ok"><b>${clean}</b><span>Ready to cost</span></div>
+    <div class="t warn"><b>${warnOnly}</b><span>Warnings only</span></div>
+    <div class="t bad"><b>${crit}</b><span>Critical gaps</span></div>
+    <div class="t bad"><b>${R.miss.length}</b><span>Ingredients missing from inventory</span></div>
+    <div class="t bad"><b>${R.zero.length}</b><span>Items with zero / negative cost</span></div>`;
+  const listTbl = (rows, head, cell) => `<div class="table-scroll" style="max-height:240px; overflow-y:auto"><table><thead><tr>${head}</tr></thead><tbody>${rows.map(cell).join("")}</tbody></table></div>`;
+  $("revsys").innerHTML =
+    (R.zero.length ? `<h3 class="sub3">Fix costs in the item master (${R.zero.length} items)</h3>` + listTbl(R.zero.slice(0, 50), `<th>Item</th><th class="num">Avg cost</th><th class="num">Formulas</th>`,
+      e => `<tr><td>${esc(e.it.name)} <span class="muted small">${esc(e.it.code)}</span></td><td class="num">${money(e.it.price)} / ${esc(e.it.unitStr)}</td><td class="num" title="${esc([...e.fs].join(", "))}">${e.fs.size}</td></tr>`) : "") +
+    (R.miss.length ? `<h3 class="sub3">Create or match in inventory (${R.miss.length} ingredients)</h3>` + listTbl(R.miss.slice(0, 50), `<th>Ingredient</th><th class="num">Formulas</th>`,
+      e => `<tr><td>${esc(e.name)}</td><td class="num" title="${esc([...e.fs].join(", "))}">${e.fs.size}</td></tr>`) : "");
+  const mode = $("revfilter").value;
+  const shown = R.per.filter(x => mode === "all" || (mode === "critical" ? x.r.some(y => y.sev === "critical") : x.r.some(y => y.sev !== "info")));
+  $("revcount").textContent = `${shown.length} of ${R.per.length} formulas`;
+  $("revlist").innerHTML = shown.length ? shown.map(({ f, r }) => {
+    const c = { critical: 0, warning: 0, info: 0 }; r.forEach(x => c[x.sev]++);
+    const order = { critical: 0, warning: 1, info: 2 };
+    const items = [...r].sort((a, b) => order[a.sev] - order[b.sev]);
+    return `<details class="rev"><summary><span class="ttl">${esc(f.title)}</span>
+      ${c.critical ? `<span class="chip bad">${c.critical} critical</span>` : ""}${c.warning ? `<span class="chip warn">${c.warning} warning${c.warning > 1 ? "s" : ""}</span>` : ""}${c.info ? `<span class="chip off">${c.info} note${c.info > 1 ? "s" : ""}</span>` : ""}${!r.length ? `<span class="chip ok">No gaps found</span>` : ""}</summary>
+      <div class="body"><ul class="find">${items.map(x => `<li><span><span class="chip ${SEV[x.sev][0]}">${SEV[x.sev][1]}</span></span><div>${esc(x.text)}<div class="rec">${esc(x.rec)}</div></div></li>`).join("") || `<li><span></span><div class="muted">No gaps found.</div></li>`}</ul>
+      <div style="margin-top:10px"><button type="button" class="link" data-open="${f.id}">Open this formula in step 3</button></div></div></details>`;
+  }).join("") : `<p class="empty">No formulas match this filter.</p>`;
+  $("revlist").querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => {
+    cur = book.findIndex(f => f.id === b.dataset.open); saveBook(); refreshAll(); $("h-lines").scrollIntoView({ block: "start", behavior: "smooth" });
+  }));
+}
+$("revfilter").addEventListener("change", renderReview);
+$("copyrev").addEventListener("click", () => {
+  const R = reviewAll(), rows = [["Formula", "Severity", "Finding", "Recommendation"]];
+  R.per.forEach(({ f, r }) => { if (!r.length) rows.push([f.title, "OK", "No gaps found", ""]); r.forEach(x => rows.push([f.title, SEV[x.sev][1], x.text, x.rec])); });
+  rows.push([], ["Item master: zero / negative cost", "Item code", "Avg cost", "UOM", "Formulas affected"]);
+  R.zero.forEach(e => rows.push([e.it.name, e.it.code, e.it.price, e.it.unitStr, [...e.fs].join(", ")]));
+  rows.push([], ["Missing from inventory", "Formulas affected"]);
+  R.miss.forEach(e => rows.push([e.name, [...e.fs].join(", ")]));
+  copyText(tsv(rows), "Copied the review report. Paste into Excel.");
 });
 
 /* ---------- copy for Excel ---------- */
@@ -1149,9 +1388,10 @@ $("parse").addEventListener("click", () => {
   cur = book.length - 1; $("ftext").value = ""; $("pastebox").hidden = true; saveBook(); refreshAll();
 });
 $("bookq").addEventListener("input", renderBook);
-$("fname").addEventListener("change", e => { if (book[cur]) { book[cur].title = e.target.value; changed(); } });
-$("bsize").addEventListener("change", e => { if (book[cur]) { book[cur].size = e.target.value; changed(); } });
-$("bunit").addEventListener("change", e => { if (book[cur]) { book[cur].unit = e.target.value; changed(); } });
+$("fname").addEventListener("change", e => { const f = book[cur]; if (f) { const old = f.title; f.title = e.target.value; book.forEach(g => g.lines.forEach(l => { if (l.interTitle === old) l.interTitle = f.title; })); linkIntermediates(); changed(); } });
+$("bsize").addEventListener("change", e => { if (book[cur]) { book[cur].size = e.target.value; linkIntermediates(); changed(); } });
+$("bunit").addEventListener("change", e => { if (book[cur]) { book[cur].unit = e.target.value; linkIntermediates(); changed(); } });
+$("isinter").addEventListener("change", e => { if (book[cur]) { book[cur].isInter = e.target.checked; linkIntermediates(); changed(); } });
 $("nunits").addEventListener("change", e => { if (book[cur]) { book[cur].n = e.target.value; changed(); } });
 $("addprov").addEventListener("click", () => { provs.push({ name: "New provision", basis: "batch", v: 0 }); saveProvs(); renderProvs(); renderSummary(); renderBook(); });
 $("resetprov").addEventListener("click", () => { provs = DEFAULT_PROVS.map(p => ({ ...p })); saveProvs(); renderProvs(); renderSummary(); renderBook(); });
@@ -1172,6 +1412,7 @@ const SAMPLE_INV = [
   ["DEMO/INV/0109", "Hydroxocobalamin Acetate", "Milligram", 5000, 0.0062], ["DEMO/INV/0110", "Zinc Sulphate Heptahydrate", "Gram", 250, 0.031],
   ["DEMO/INV/0111", "Glutathione L USP", "Gram", 1400, 0.55], ["DEMO/INV/0112", "Acetate Buffer", "ML", 900, 0.0012],
   ["DEMO/INV/0113", "Phosphate Buffer", "ML", 800, 0.0019], ["DEMO/INV/0114", "Water for Injection 500 ML", "Qty", 50, 0.35],
+  ["DEMO/INV/0115", "Sodium Acetate Trihydrate USP", "KG", 1, 64], ["DEMO/INV/0116", "Acetic Acid Glacial Extra Pure 99.5%", "Liters", 2.5, 5.5],
   ["Sub Total", "", "", "", "", 0], ["Sub Sub Category : - Peptides"],
   ["DEMO/INV/0201", "BPC-157", "Gram", 2, 75], ["DEMO/INV/0202", "TB-500 (Thymosin Beta-4)", "Milligram", 500, 0.33],
   ["Sub Total", "", "", "", "", 0], ["Sub Sub Category : - Packing Material"],
@@ -1183,6 +1424,10 @@ const SAMPLE_INV = [
 ];
 const SAMPLE_MFR = [
   ["EXAMPLE MASTER FORMULA RECORD (made-up data)"],
+  ["INT-06 · Acetate buffer pH 5.0 (1 L, 0.1 M)"],
+  ["Component", "Amount", "Unit", "Preparation / note", "Cost"],
+  ["Sodium acetate trihydrate", 8.64, "g", "0.0635 mol", 0], ["Glacial acetic acid", 2.09, "mL", "0.0365 mol", 0],
+  ["Sterile Water for Injection (SWFI)", "q.s. 1 000", "mL", "Dissolve, adjust pH, 0.22 µm filter", 0], [],
   ["IV 01 — Antioxidant Drip"], ["Container: 50 mL amber glass bottle + stopper + flip-off cap  ·  Fill: 50 mL"],
   ["Raw Material / Component", "Role", "Qty / bottle", "Unit", "Conc (per mL)", "Qty / batch", "Unit cost", "Cost / bottle"],
   ["Ascorbic acid (Vit C)", "Active", 4000, "mg", 80, 4000, 0, 0], ["L-Glutamine", "Active", 200, "mg", 4, 200, 0, 0],
@@ -1212,8 +1457,10 @@ function loadSample() {
   store.del("fc.book");
   setInventory(SAMPLE_INV, "the example file", true);
   book = []; addFormulas(extractFormulas(SAMPLE_MFR, "Example MFR")); cur = 0; isSampleBook = true;
-  plan = [{ fid: book[0].id, qty: 40, mode: "units" }, { fid: book[2].id, qty: 25, mode: "units" }]; savePlan();
-  showFormStatus("Showing 3 made-up example formulas. Upload your master formula record to replace them.");
+  const byT = (t) => book.find(f => f.title.startsWith(t));
+  cur = book.indexOf(byT("IV 01"));
+  plan = [{ fid: byT("IV 01").id, qty: 200, mode: "units" }, { fid: byT("PEP-001").id, qty: 25, mode: "units" }]; savePlan();
+  showFormStatus("Showing 4 made-up example formulas, including one intermediate buffer. Upload your master formula record to replace them.");
   $("formstatus").className = "status sample";
   refreshAll();
 }
