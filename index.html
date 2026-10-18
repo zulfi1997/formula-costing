@@ -160,7 +160,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
   <header class="top">
     <div>
       <h1>Compounding Formula Costing</h1>
-      <p class="sub">Load the Item Valuation Summary, then a master formula record (Excel or Word). Every formula in the file is matched to inventory items and costed per unit. Review the matches, add provisions, and copy the result into Excel.</p>
+      <p class="sub">Load the Item Valuation Summary, then a master formula record (Excel, Word or PDF). Every formula in the file is matched to inventory items and costed per unit. Review the matches, add provisions, and copy the result into Excel.</p>
     </div>
     <span class="privacy">Files are read in your browser only. Nothing is uploaded.</span>
   </header>
@@ -192,7 +192,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
         <div class="panel-head">
           <div><span class="step">Step 2</span><h2 id="h-form">Formulas</h2></div>
           <div class="row">
-            <span class="file"><button type="button" class="primary" tabindex="-1">Upload formulas (Excel / Word)</button><input id="formfile" type="file" accept=".xlsx,.xls,.csv,.docx,.txt" aria-label="Upload formula file"></span>
+            <span class="file"><button type="button" class="primary" tabindex="-1">Upload formulas (Excel / Word / PDF)</button><input id="formfile" type="file" accept=".xlsx,.xls,.csv,.docx,.pdf,.txt" aria-label="Upload formula file"></span>
             <button type="button" id="showpaste">Paste a formula</button>
           </div>
         </div>
@@ -647,7 +647,8 @@ function extractFormulas(rows, source) {
   for (let i = 0; i < rows.length; i++) {
     const h = headerCols(rows[i]); if (!h) continue;
     const pre = rows.slice(lastEnd, i).map(cellsOf).filter(c => c.length === 1).map(c => c[0]);
-    let title = pre.find(t => TITLE_CODE.test(t) && t.length < 140)
+    const coded = pre.filter(t => TITLE_CODE.test(t) && t.length < 140);
+    let title = coded.filter(t => /^[A-Z]{1,6}[\s\-]?\d{1,4}\b\s*([·—–:\/-]|$)/i.test(t)).pop() || coded.pop()
       || pre.filter(t => t.length < 100 && !/^(container|buffer|note|fill|vehicle|prepared|reviewed|financial|section)/i.test(t)).pop()
       || `${source} formula ${out.length + 1}`;
     const lines = []; let j = i + 1;
@@ -655,6 +656,7 @@ function extractFormulas(rows, source) {
       const r = rows[j], cells = cellsOf(r);
       if (!cells.length) { if (lines.length) break; else continue; }
       if (headerCols(r)) break;
+      if (cells.length === 1 && /^(page\s*\d+(\s*(of|\/)\s*\d+)?|\d+(\s*(of|\/)\s*\d+)?)$/i.test(cells[0])) continue;
       const name = str(r[h.name]);
       if (!name || cells.length === 1) break;
       if (/^(cost|total|sub ?total|grand total|×|x\s)/i.test(name) || /cost per|per batch/i.test(name)) break;
@@ -1420,16 +1422,16 @@ $("formfile").addEventListener("change", e => {
   if (/\.docx$/i.test(file.name)) {
     if (typeof mammoth === "undefined") { showFormStatus("The Word reader did not load. Check your internet connection and reload the page.", true); return; }
     const fr = new FileReader();
-    fr.onload = () => mammoth.convertToHtml({ arrayBuffer: fr.result }).then(res => {
-      const rows = docxToRows(res.value);
-      let list = extractFormulas(rows, base);
-      if (!list.length) {
-        const lines = parseFormulaText(rows.map(r => r.join("\t")).join("\n")).filter(l => l.qty !== "" || l.unit === "q.s.");
-        if (lines.length) list = [{ title: base, source: file.name, info: "", per: "", size: "", unit: "mL", n: 1, lines }];
-      }
-      finishImport(list, file.name);
-    }).catch(() => showFormStatus(`Could not read ${file.name}. Is it a .docx file? Older .doc files must be saved as .docx first.`, true));
+    fr.onload = () => mammoth.convertToHtml({ arrayBuffer: fr.result }).then(res => importRows(docxToRows(res.value), file.name, base)).catch(() => showFormStatus(`Could not read ${file.name}. Is it a .docx file? Older .doc files must be saved as .docx first.`, true));
     fr.readAsArrayBuffer(file);
+    return;
+  }
+  if (/\.pdf$/i.test(file.name)) {
+    showFormStatus(`Reading ${file.name}…`);
+    loadPdfJs().then(() => file.arrayBuffer()).then(buf => pdfToRows(buf)).then(({ rows, chars }) => {
+      if (chars < 20) { showFormStatus(`${file.name} has no readable text. It looks like a scanned image. Ask for the original Word or Excel file, or a PDF saved directly from Word/Excel.`, true); return; }
+      importRows(rows, file.name, base);
+    }).catch(e => showFormStatus(`Could not read ${file.name}. ${e && e.message ? e.message : ""}`, true));
     return;
   }
   if (/\.doc$/i.test(file.name)) { showFormStatus("Older .doc files can't be read. Open it in Word and save as .docx, then upload again.", true); return; }
@@ -1444,6 +1446,84 @@ $("formfile").addEventListener("change", e => {
     finishImport(list, file.name);
   });
 });
+/* rows from Word or PDF: formula tables first, otherwise one formula from plain lines */
+function importRows(rows, name, base) {
+  let list = extractFormulas(rows, base);
+  if (!list.length) {
+    const lines = parseFormulaText(rows.map(r => r.join("\t")).join("\n")).filter(l => l.qty !== "" || l.unit === "q.s.");
+    if (lines.length) list = [{ title: base, source: name, info: "", per: "", size: "", unit: "mL", n: 1, lines }];
+  }
+  finishImport(list, name);
+}
+/* pdf.js is only loaded when a PDF is uploaded; the worker runs on the page thread */
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+let pdfReady;
+function loadScript(src) { return new Promise((ok, bad) => { const sc = document.createElement("script"); sc.src = src; sc.onload = ok; sc.onerror = () => bad(new Error("The PDF reader did not load. Check your internet connection and reload the page.")); document.head.appendChild(sc); }); }
+function loadPdfJs() {
+  pdfReady = pdfReady || loadScript(PDFJS + "pdf.min.js").then(() => loadScript(PDFJS + "pdf.worker.min.js")).then(() => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js"; });
+  pdfReady.catch(() => { pdfReady = null; });
+  return pdfReady;
+}
+/* rebuild table rows from text positions: same baseline = one row, a wide horizontal gap = a new cell */
+async function pdfToRows(buf) {
+  const doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
+  const rows = []; let chars = 0, cols = null;     // cols: x positions of the last table header seen
+  for (let pn = 1; pn <= doc.numPages; pn++) {
+    const page = await doc.getPage(pn);
+    const tc = await page.getTextContent();
+    const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width, fs: Math.hypot(it.transform[0], it.transform[1]) || 10 }));
+    chars += items.reduce((a, it) => a + it.s.trim().length, 0);
+    items.sort((a, b) => b.y - a.y || a.x - b.x);
+    const lines = [];
+    items.forEach(it => { const ln = lines.find(l => Math.abs(l.y - it.y) <= Math.max(2, it.fs * 0.35)); if (ln) ln.items.push(it); else lines.push({ y: it.y, items: [it] }); });
+    let prev = null;
+    lines.sort((a, b) => b.y - a.y).forEach(ln => {
+      const its = ln.items.sort((a, b) => a.x - b.x);
+      const split = (useCols) => {
+        const out = []; let curCell = null, end = -1e9;
+        its.forEach(it => {
+          const gap = it.x - end;
+          // inside a table, text belongs to the column whose header it starts under (long names can touch the next column)
+          const col = useCols ? cols.filter(x => x <= it.x + 4).length - 1 : -1;
+          const newCell = !curCell || (useCols ? col !== curCell.col : gap > Math.max(6, it.fs * 0.9));
+          if (newCell) { curCell = { t: it.s, x: useCols && col >= 0 ? cols[col] : it.x, col }; out.push(curCell); }
+          else curCell.t += (gap > it.fs * 0.15 && !/\s$/.test(curCell.t) ? " " : "") + it.s;
+          end = it.x + it.w;
+        });
+        out.forEach(c => { c.t = c.t.trim(); });
+        return out;
+      };
+      let cells = split(false);
+      if (headerCols(cells.map(c => c.t))) cols = cells.map(c => c.x);      // a new table starts: remember its columns
+      else if (cols && cells.length > 1) cells = split(true);                // titles and notes stay one cell
+      const fs = its[0].fs;
+      if (prev && isWrap(prev, cells, prev.y - ln.y, fs)) {
+        cells.forEach(c => { const pc = colOf(prev.cells, c.x); pc.t += (/-$/.test(pc.t) ? "" : " ") + c.t; });
+        prev.y = ln.y;
+        return;
+      }
+      prev = { cells, y: ln.y, fs };
+      rows.push(prev);
+    });
+  }
+  return { rows: rows.map(r => r.cells.map(c => c.t)), chars };
+}
+/* the cell of the line above that a piece of text sits under */
+function colOf(cells, x) { let best = cells[0]; cells.forEach(c => { if (c.x <= x + 10) best = c; }); return best; }
+/* a line is the wrapped continuation of the line above when it sits right under it, only fills columns
+   that already have text, and has no quantity of its own (a real table row always has one) */
+function isWrap(prev, cells, gap, fs) {
+  if (gap > fs * 2.2 || !cells.length) return false;
+  const txt = cells.map(c => c.t).join(" ");
+  if (cells.some(c => /^([\d.,]+\s*[a-zµ%]*|q\.?\s*s\.?.*)$/i.test(c.t))) return false;
+  if (TITLE_CODE.test(txt) || /^(container|buffer rationale|vehicle|note|fill|raw material|component|ingredient|prepared|reviewed)\b/i.test(txt)) return false;
+  const ptxt = prev.cells.map(c => c.t).join(" ");
+  if (/cost per|per batch|total|→/i.test(ptxt) || headerCols(prev.cells.map(c => c.t))) return false;
+  if (prev.cells.length > 1 && cells.length >= prev.cells.length) return false;
+  if (Math.abs((prev.fs || fs) - fs) > 0.5 || TITLE_CODE.test(ptxt)) return false;        // a heading never continues into body text
+  if (prev.cells.length === 1 && (cells.length > 1 || ptxt.length < 60 || /[.:]$/.test(ptxt) && /^[A-Z]/.test(txt))) return false;
+  return cells.every(c => c.x >= prev.cells[0].x - 10);
+}
 function finishImport(list, name) {
   if (!list.length) { showFormStatus(`No formula table found in ${name}. Each formula needs a header row with an ingredient column and a quantity column.`, true); return; }
   const first = isSampleBook ? 0 : book.length;
