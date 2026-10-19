@@ -401,7 +401,7 @@ const ABBR = {
   cyp: "cypionate", prop: "propionate", enan: "enanthate", ac: "acetate",
   hemihydrate: "hydrate", monohydrate: "hydrate", dihydrate: "hydrate", trihydrate: "hydrate", hexahydrate: "hydrate", heptahydrate: "hydrate",
   pwd: "powder", pdr: "powder", micro: "micronized", micronised: "micronized", sulfate: "sulphate", sulfur: "sulphur",
-  sol: "solution", soln: "solution", vit: "vitamin", oint: "ointment", crm: "cream", aluminum: "aluminium", alum: "aluminium",
+  sol: "solution", soln: "solution", vit: "vitamin", hyaluronate: "hyaluronic", reduced: "", glabridin: "", oint: "ointment", crm: "cream", aluminum: "aluminium", alum: "aluminium",
   swfi: "water for injection", wfi: "water for injection", naoh: "sodium hydroxide", edta: "edetate", mgso4: "magnesium sulphate",
   pg: "propylene glycol", peg: "polyethylene glycol", dmso: "dimethyl sulfoxide", tmg: "trimethylglycine", nac: "acetylcysteine",
   gsh: "glutathione", ala: "alpha lipoic acid", coq10: "coenzyme q10", q10: "coenzyme q10", ubiquinone: "coenzyme q10",
@@ -415,7 +415,7 @@ function tokenize(s) {
     .replace(/\btb[\s-]?(500|4)\b/g, "thymosin beta 4").replace(/(\d)\s+(ml|mg|mm|g|l|kg|mcg|iu)\b/g, "$1$2")
     .replace(/[^a-z0-9.]+/g, " ").replace(/(^|\s)\.|\.(\s|$)/g, " ").trim().split(/\s+/).filter(Boolean);
   const out = [];
-  raw.forEach(t => { const e = ABBR[t]; if (e) out.push(...e.split(" ")); else out.push(t); });
+  raw.forEach(t => { const e = ABBR[t]; if (e != null) { if (e) out.push(...e.split(" ")); } else out.push(t); });
   return out;
 }
 function core(tokens) { const c = tokens.filter(t => !NOISE.has(t)); return c.length ? c : tokens; }
@@ -444,13 +444,14 @@ function nameVariants(name) {
   return v;
 }
 function score(q, it) {
-  let rec = 0; const used = new Set();
+  let rec = 0, wsum = 0; const used = new Set();
   q.c.forEach(t => {
     let best = 0, bi = -1;
     it._c.forEach((u, i) => { const s = tokSim(t, u); if (s > best) { best = s; bi = i; } });
-    rec += best; if (bi >= 0 && best > 0) used.add(bi);
+    const w = COUNTER.has(t) && q.c.length > 1 ? 0.3 : 1;      // counter-ions (sodium, magnesium…) count less than the compound name
+    rec += best * w; wsum += w; if (bi >= 0 && best > 0) used.add(bi);
   });
-  rec /= q.c.length || 1;
+  rec /= wsum || 1;
   const prec = used.size / (it._c.length || 1);
   return 0.62 * rec + 0.18 * prec + 0.2 * dice(q.j, it._j);
 }
@@ -577,15 +578,27 @@ function rankMatches(name, dim) {
   const res = [];
   inv.items.forEach(it => {
     if (inv.catsOff[it.cat]) return;
-    let s = 0; vars.forEach(v => { s = Math.max(s, v.w * score(v, it)); });
+    let s = 0, best = vars[0]; vars.forEach(v => { const x = v.w * score(v, it); if (x > s) { s = x; best = v; } });
     if (s < 0.3) return;
+    const key = keyRecall(best, it);
     if (!(it.price > 0)) s *= it.price < 0 ? 0.6 : 0.7;     // strongly prefer items that carry a real cost
     if (dim && it.u && it.u.dim !== dim && it.contents[dim] == null) s *= 0.85; // prefer items in a compatible unit
     if (it.onHand > 0) s += 0.01;
-    res.push({ item: it, s: Math.min(1, s) });
+    res.push({ item: it, s: Math.min(1, s), key });
   });
   res.sort((a, b) => b.s - a.s);
   return res.slice(0, 6);
+}
+/* share of the ingredient's identifying words found in the item name. Counter-ions and "acid" are left out,
+   so "Sodium hyaluronate" can match "Hyaluronic acid" but "Magnesium stearate" cannot match "Magnesium" */
+const COUNTER = new Set(["sodium", "disodium", "trisodium", "potassium", "calcium", "magnesium", "acid", "salt"]);
+function keyRecall(q, it) {
+  const ions = (c) => new Set(c.filter(t => COUNTER.has(t) && t !== "acid" && t !== "salt"));
+  const qi = ions(q.c), ii = ions(it._c);
+  if (qi.size && ii.size && ![...qi].some(t => ii.has(t))) return 0;   // magnesium chloride is not sodium chloride
+  const words = q.c.filter(t => /^[a-z]{2,}$/.test(t) && !COUNTER.has(t));
+  if (!words.length) return 1;
+  return words.filter(t => it._c.some(u => tokSim(t, u) > 0) || (t.length >= 4 && it._j.includes(t))).length / words.length;   // "ThymosinAlpha-1" has no spaces
 }
 function lineDim(l, f) {
   if (l.unit === "%" || l.unit === "q.s.") return f && unitInfo(f.unit) ? unitInfo(f.unit).dim : null;
@@ -599,7 +612,7 @@ function autoMatch(l) {
   const lk = learned[normKey(l.name)];
   if (lk && inv.byKey.get(lk) && !inv.catsOff[inv.byKey.get(lk).cat]) { l.matchId = inv.byKey.get(lk).id; l.learned = true; l.conf = 1; return; }
   l.learned = false;
-  l.matchId = l.cands[0] && l.cands[0].s >= 0.6 ? l.cands[0].item.id : null;
+  l.matchId = l.cands[0] && l.cands[0].s >= 0.6 && (l.cands[0].key ?? 1) >= 0.6 ? l.cands[0].item.id : null;
   l.conf = l.cands[0] ? l.cands[0].s : 0;
 }
 function relinkManual(l) {
