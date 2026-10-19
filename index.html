@@ -152,6 +152,8 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .sys table td { font-size: 13px; }
 #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); max-width: calc(100% - 32px);
   background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 6px; font-size: 13px; z-index: 10; box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+button.armed { border-color: var(--bad); color: var(--bad); }
 .empty { padding: 18px; text-align: center; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -162,7 +164,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
       <h1>Compounding Formula Costing</h1>
       <p class="sub">Load the Item Valuation Summary, then a master formula record (Excel, Word or PDF). Every formula in the file is matched to inventory items and costed per unit. Review the matches, add provisions, and copy the result into Excel.</p>
     </div>
-    <span class="privacy">Files are read in your browser only. Nothing is uploaded.</span>
+    <span class="privacy">Files are read in your browser only. Nothing is uploaded. <button type="button" class="link" id="resetall">Reset everything</button></span>
   </header>
 
   <div class="grid">
@@ -196,6 +198,7 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
             <button type="button" id="showpaste">Paste a formula</button>
           </div>
         </div>
+        <label class="excl" style="margin:0 0 8px"><input type="checkbox" id="keepold"> Keep formulas already loaded when uploading (otherwise a new file replaces them)</label>
         <div id="formstatus" class="status" hidden></div>
         <div id="pastebox" hidden style="margin-top:10px">
           <label class="f" for="ftext">One ingredient per line: name, quantity, unit. Rows copied from Excel or a Word table work too.</label>
@@ -207,11 +210,14 @@ ul.find .rec { color: var(--muted); font-size: 12px; margin-top: 2px; }
         </div>
         <div class="row" style="margin:12px 0 8px; justify-content: space-between">
           <input type="search" id="bookq" placeholder="Search formulas…" aria-label="Search formulas" style="flex:1 1 220px">
-          <button type="button" id="copybook">Export all formula costs (Excel)</button>
+          <span class="row" style="gap:8px">
+            <button type="button" id="copybook">Export all formula costs (Excel)</button>
+            <button type="button" id="clearbook">Clear all formulas</button>
+          </span>
         </div>
         <div class="table-scroll tall">
           <table id="book">
-            <thead><tr><th>Formula</th><th class="num">Matched</th><th class="num">Cost / unit</th><th class="num">Price / unit</th></tr></thead>
+            <thead><tr><th>Formula</th><th class="num">Matched</th><th class="num">Cost / unit</th><th class="num">Price / unit</th><th><span class="sr">Remove</span></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -878,7 +884,7 @@ const money = (v, d) => isFinite(v) ? v.toLocaleString(undefined, { minimumFract
 function renderBook() {
   const q = $("bookq").value.trim().toLowerCase();
   const tb = $("book").querySelector("tbody");
-  if (!book.length) { tb.innerHTML = `<tr><td colspan="4" class="empty">No formulas yet. Upload a master formula record or paste a formula.</td></tr>`; return; }
+  if (!book.length) { tb.innerHTML = `<tr><td colspan="5" class="empty">No formulas yet. Upload a master formula record or paste a formula.</td></tr>`; return; }
   tb.innerHTML = book.map((f, i) => {
     if (q && !(f.title + " " + f.source).toLowerCase().includes(q)) return "";
     const t = totals(f);
@@ -886,14 +892,44 @@ function renderBook() {
     return `<tr data-i="${i}" class="${i === cur ? "sel" : ""}" tabindex="0">
       <td><div class="fname">${esc(f.title)}</div><div class="src">${esc(f.source)}${f.per ? " · per " + esc(f.per) : ""}</div></td>
       <td class="num"><span class="chip ${state}">${t.matched}/${t.count}</span></td>
-      <td class="num">${money(t.cpu)}</td><td class="num">${money(t.spu)}</td></tr>`;
+      <td class="num">${money(t.cpu)}</td><td class="num">${money(t.spu)}</td>
+      <td><button type="button" class="x" data-del="${i}" aria-label="Remove ${esc(f.title)}" title="Remove this formula">✕</button></td></tr>`;
   }).join("");
   tb.querySelectorAll("tr[data-i]").forEach(tr => {
     const pick = () => { cur = +tr.dataset.i; saveBook(); refreshAll(); document.getElementById("h-lines").scrollIntoView({ block: "start", behavior: "smooth" }); };
-    tr.addEventListener("click", pick);
+    tr.addEventListener("click", e => { if (!e.target.closest("[data-del]")) pick(); });
     tr.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
   });
 }
+/* two-step confirmation inside the page (browser confirm dialogs are blocked in the viewer) */
+function armed(btn, label, action) {
+  if (btn.classList.contains("armed")) { btn.classList.remove("armed"); btn.textContent = btn.dataset.label; action(); return; }
+  btn.dataset.label = btn.textContent; btn.textContent = label; btn.classList.add("armed");
+  setTimeout(() => { if (btn.classList.contains("armed")) { btn.classList.remove("armed"); btn.textContent = btn.dataset.label; } }, 4000);
+}
+function removeFormulas(ids) {
+  const keepCur = book[cur] && !ids.has(book[cur].id) ? book[cur].id : null;
+  book = book.filter(f => !ids.has(f.id));
+  plan = plan.filter(p => !ids.has(p.fid));
+  linkIntermediates();                                  // lines that used a removed intermediate fall back to inventory
+  cur = keepCur ? book.findIndex(f => f.id === keepCur) : 0;
+  isSampleBook = false;
+  savePlan(); saveBook(); refreshAll();
+}
+$("book").addEventListener("click", e => {
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  const f = book[+b.dataset.del]; if (!f) return;
+  removeFormulas(new Set([f.id]));
+  notify(`Removed ${f.title}`);
+});
+$("clearbook").addEventListener("click", e => armed(e.currentTarget, "Click again to clear all", () => {
+  const n = book.length; removeFormulas(new Set(book.map(f => f.id)));
+  $("formstatus").hidden = true; notify(`Cleared ${n} formula${n === 1 ? "" : "s"}`);
+}));
+$("resetall").addEventListener("click", e => armed(e.currentTarget, "Click again to erase all saved data", () => {
+  try { Object.keys(localStorage).filter(k => k.startsWith("fc.")).forEach(k => localStorage.removeItem(k)); } catch (err) {}
+  location.reload();
+}));
 function renderFormulaHead() {
   const f = book[cur];
   ["fname", "bsize", "bunit", "nunits", "isinter"].forEach(id => $(id).disabled = !f);
@@ -1526,16 +1562,20 @@ function isWrap(prev, cells, gap, fs) {
 }
 function finishImport(list, name) {
   if (!list.length) { showFormStatus(`No formula table found in ${name}. Each formula needs a header row with an ingredient column and a quantity column.`, true); return; }
-  const first = isSampleBook ? 0 : book.length;
-  addFormulas(list, isSampleBook);
+  const replace = isSampleBook || !$("keepold").checked;
+  if (replace) plan = [];
+  const first = replace ? 0 : book.length;
+  addFormulas(list, replace);
   isSampleBook = false;
   cur = first;
   const lines = list.reduce((a, f) => a + f.lines.length, 0);
   const t = list.map(totals);
   const unmatched = t.reduce((a, x) => a + x.unmatched, 0), check = t.reduce((a, x) => a + x.check, 0);
-  showFormStatus(`Found ${list.length} ${list.length === 1 ? "formula" : "formulas"} (${lines} ingredient lines) in ${name}. ${unmatched} lines have no inventory match and ${check} need checking.`);
-  saveBook(); refreshAll();
+  showFormStatus(`${replace ? "Replaced the formula list with" : "Added"} ${list.length} ${list.length === 1 ? "formula" : "formulas"} (${lines} ingredient lines) from ${name}. ${unmatched} lines have no inventory match and ${check} need checking.`);
+  savePlan(); saveBook(); refreshAll();
 }
+try { $("keepold").checked = !!store.get("fc.keepOld", false); } catch (e) {}
+$("keepold").addEventListener("change", e => store.set("fc.keepOld", e.target.checked));
 $("showpaste").addEventListener("click", () => { $("pastebox").hidden = !$("pastebox").hidden; if (!$("pastebox").hidden) $("ftext").focus(); });
 $("parse").addEventListener("click", () => {
   const lines = parseFormulaText($("ftext").value);
