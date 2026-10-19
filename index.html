@@ -386,6 +386,14 @@ function contentsFromName(name) {
   while ((m = re.exec(s))) { const u = unitInfo(m[2]); if (u && out[u.dim] == null) out[u.dim] = parseFloat(m[1].replace(",", ".")) * u.f; }
   return out;
 }
+/* a quantity as [number, unit] for spreadsheets, in a readable unit (mg / g / kg, mL / L) */
+function qtyParts(v, dim) {
+  if (v == null || !isFinite(v)) return ["", ""];
+  const a = Math.abs(v);
+  if (dim === "mass") return a >= 1000 ? [round(v / 1000, 4), "kg"] : a < 1 && a > 0 ? [round(v * 1000, 3), "mg"] : [round(v, 4), "g"];
+  if (dim === "vol") return a >= 1000 ? [round(v / 1000, 4), "L"] : [round(v, 4), "mL"];
+  return [round(v, 4), BASE[dim] || ""];
+}
 function fmtQty(v, dim) {
   if (v == null || !isFinite(v)) return "–";
   const a = Math.abs(v);
@@ -1260,7 +1268,7 @@ $("copyreq").addEventListener("click", () => {
   const rows = [["Item code", "Raw material / component", "UOM", "Required", "On hand", "Balance after", "Status", "To buy", "Cost per UOM", "Used for"]];
   R.rows.forEach(r => rows.push([r.item.code, r.item.name, r.item.unitStr, round(r.qty, 4), isFinite(r.item.onHand) ? r.item.onHand : "", isFinite(r.balance) ? round(r.balance, 4) : "",
     STATUS[r.status][1], r.status === "short" || r.status === "out" ? round(toBuy(r), 4) : "", r.item.price, [...r.names].join(", ")]));
-  R.missing.forEach(m => rows.push(["", m.name, "", m.known ? fmtQty(m.base, m.dim) : "", "", "", "Not in inventory list", m.known ? fmtQty(m.base, m.dim) : "", "", [...m.uses].join(", ")]));
+  R.missing.forEach(m => { const [q, u] = m.known ? qtyParts(m.base, m.dim) : ["", ""]; rows.push(["", m.name, u, q, "", "", "Not in inventory list", q, "", [...m.uses].join(", ")]); });
   R.info.forEach(x => rows.push([x.item.code, x.item.name, x.item.unitStr, "", x.item.onHand, "", "Quantity unknown: " + x.why, "", x.item.price, x.name]));
   const sheets = [["Requirements", rows], ["Plan", planRows]];
   if (R.inter.length) {
@@ -1405,20 +1413,20 @@ $("copyrev").addEventListener("click", () => {
 function formulaRows(f) {
   const t = totals(f), out = [];
   out.push(["Formula", f.title], ["Source", f.source], ["Fill / batch size", f.size ? f.size + " " + f.unit : ""], ["Quantities for", t.n + " " + (f.per || "unit")], []);
-  out.push(["Ingredient", "Role", "Qty", "Unit", "Inventory code", "Inventory item", "Cost per UOM", "UOM", "Qty used", "Line cost", "Match"]);
+  out.push(["Ingredient", "Role", "Qty", "Unit", "Inventory code", "Inventory item", "Cost per UOM", "UOM", "Qty used", "Qty used unit", "Line cost", "Match"]);
   f.lines.forEach(l => {
     const it = l.matchId ? inv.byId.get(l.matchId) : null;
     const g = interOf(l);
     out.push([l.name, l.role || "", l.unit === "q.s." || l.unit === "drops" ? "" : +l.qty, l.unit === "drops" && l.base != null ? "drops (est. " + phAllow + " mL)" : l.unit,
       g ? "" : it ? it.code : "", l.excluded ? "NOT COSTED" : g ? "Made from " + g.title : it ? it.name : "NOT MATCHED",
       g ? (l.interPer != null ? round(l.interPer, 6) : "") : it ? it.price : "", g ? BASE[l.dim] : it ? it.unitStr : "",
-      l.base != null ? fmtQty(l.base, l.dim) : "", l.cost != null ? round(l.cost, 5) : "",
+      ...qtyParts(l.base, l.dim), l.cost != null ? round(l.cost, 5) : "",
       l.excluded ? "excluded" : g ? "intermediate" : !it ? "none" : (l.manual || l.learned) ? "chosen" : Math.round(l.conf * 100) + "%"]);
   });
-  out.push([], ["Materials & components", "", "", "", "", "", "", "", "", round(t.M, 4)]);
-  t.rows.forEach(r => out.push([r.name, "", "", "", "", BASIS[r.p.basis], r.p.v, "", "", round(r.amt, 4)]));
-  out.push(["Total cost", "", "", "", "", "", "", "", "", round(t.total, 4)], ["Cost per " + (f.per || "unit"), "", "", "", "", "", "", "", "", round(t.cpu, 4)],
-    ["Selling price per " + (f.per || "unit") + ` (${pricing.method === "margin" ? "margin" : "markup"} ${pricing.pct}%)`, "", "", "", "", "", "", "", "", round(t.spu, 4)], ["Currency", pricing.ccy]);
+  out.push([], ["Materials & components", "", "", "", "", "", "", "", "", "", round(t.M, 4)]);
+  t.rows.forEach(r => out.push([r.name, "", "", "", "", BASIS[r.p.basis], r.p.v, "", "", "", round(r.amt, 4)]));
+  out.push(["Total cost", "", "", "", "", "", "", "", "", "", round(t.total, 4)], ["Cost per " + (f.per || "unit"), "", "", "", "", "", "", "", "", "", round(t.cpu, 4)],
+    ["Selling price per " + (f.per || "unit") + ` (${pricing.method === "margin" ? "margin" : "markup"} ${pricing.pct}%)`, "", "", "", "", "", "", "", "", "", round(t.spu, 4)], ["Currency", pricing.ccy]);
   return out;
 }
 let toastT;
