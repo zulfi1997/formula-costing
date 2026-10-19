@@ -280,7 +280,7 @@ button.armed { border-color: var(--bad); color: var(--bad); }
         </div>
         <div class="table-scroll tall" style="margin-top:12px; max-height:360px">
           <table id="plan">
-            <thead><tr><th>Formula</th><th>Make</th><th class="num">Units</th><th class="num">Material cost</th><th class="num">Total cost</th><th></th></tr></thead>
+            <thead><tr><th>Formula</th><th>Make</th><th class="num">Units</th><th class="num">Cost / unit</th><th class="num">Material cost<br>(all units)</th><th class="num">Total cost<br>(all units)</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1177,9 +1177,14 @@ function renderPlan() {
     const f = fById(p.fid), t = totals(f), u = planUnits(p, f);
     return `<tr><td>${esc(f.title)}${f.isInter ? ` <span class="chip off">Intermediate</span>` : ""}</td>
       <td><span class="row" style="gap:6px;flex-wrap:nowrap"><input type="number" id="pq${i}" min="0" step="any" value="${esc(p.qty)}" aria-label="Quantity to make" class="num"><select id="pm${i}" aria-label="Unit">${modeOptions(f, p.mode)}</select></span></td>
-      <td class="num">${round(u, 2)}</td><td class="num">${money(t.M / t.n * u)}</td><td class="num">${money(t.cpu * u)}</td>
+      <td class="num">${round(u, 2)}</td><td class="num">${money(t.cpu)}</td><td class="num">${money(t.M / t.n * u)}</td><td class="num">${money(t.cpu * u)}</td>
       <td><button type="button" class="x" data-rm="${i}" aria-label="Remove ${esc(f.title)} from plan">✕</button></td></tr>`;
-  }).join("") : `<tr><td colspan="6" class="empty">Nothing planned yet. Pick a formula, enter how many to make, and choose “Add to plan”.</td></tr>`;
+  }).join("") : `<tr><td colspan="7" class="empty">Nothing planned yet. Pick a formula, enter how many to make, and choose “Add to plan”.</td></tr>`;
+  if (plan.length) {
+    let m = 0, tc = 0;
+    plan.forEach(p => { const f = fById(p.fid), t = totals(f), u = planUnits(p, f); m += t.M / t.n * u; tc += t.cpu * u; });
+    tb.insertAdjacentHTML("beforeend", `<tr><td colspan="4"><strong>Plan total</strong> <span class="muted small">(${plan.length} formula${plan.length > 1 ? "s" : ""}, ${esc(pricing.ccy || "")})</span></td><td class="num"><strong>${money(m)}</strong></td><td class="num"><strong>${money(tc)}</strong></td><td></td></tr>`);
+  }
   plan.forEach((p, i) => {
     $("pq" + i).addEventListener("change", e => { p.qty = e.target.value; savePlan(); renderPlan(); });
     $("pm" + i).addEventListener("change", e => { p.mode = e.target.value; savePlan(); renderPlan(); });
@@ -1249,8 +1254,8 @@ $("planround").addEventListener("change", e => { planRound = e.target.checked; s
 $("planover").addEventListener("change", e => { planOver = e.target.value; savePlan(); renderPlan(); });
 $("copyreq").addEventListener("click", () => {
   if (!plan.length) { notify("Add a formula to the plan first."); return; }
-  const R = requirements(), planRows = [["Formula", "Quantity", "Of", "Units", "Material cost", "Total cost", "Currency"]];
-  plan.forEach(p => { const f = fById(p.fid), t = totals(f), u = planUnits(p, f); planRows.push([f.title, +p.qty, p.mode === "fill" ? f.unit : (f.per || "unit") + "s", round(u, 3), round(t.M / t.n * u, 4), round(t.cpu * u, 4), pricing.ccy]); });
+  const R = requirements(), planRows = [["Formula", "Quantity", "Of", "Units", "Cost per unit", "Material cost (all units)", "Total cost (all units)", "Currency"]];
+  plan.forEach(p => { const f = fById(p.fid), t = totals(f), u = planUnits(p, f); planRows.push([f.title, +p.qty, p.mode === "fill" ? f.unit : (f.per || "unit") + "s", round(u, 3), round(t.cpu, 4), round(t.M / t.n * u, 4), round(t.cpu * u, 4), pricing.ccy]); });
   planRows.push([], ["Overage on quantities %", +planOver], ["Intermediates rounded up to whole batches", planRound ? "yes" : "no"], ["pH adjustment allowance (mL per unit)", +phAllow || 0]);
   const rows = [["Item code", "Raw material / component", "UOM", "Required", "On hand", "Balance after", "Status", "To buy", "Cost per UOM", "Used for"]];
   R.rows.forEach(r => rows.push([r.item.code, r.item.name, r.item.unitStr, round(r.qty, 4), isFinite(r.item.onHand) ? r.item.onHand : "", isFinite(r.balance) ? round(r.balance, 4) : "",
